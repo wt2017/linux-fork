@@ -3,7 +3,7 @@
  * Copyright (C) 2019 - 2021
  *
  * Richard van Schagen <vschagen@icloud.com>
- * Christian Marangi <ansuelsmth@gmail.com
+ * Christian Marangi <ansuelsmth@gmail.com>
  */
 
 #include <crypto/aes.h>
@@ -152,7 +152,7 @@ static int eip93_make_sg_copy(struct scatterlist *src, struct scatterlist **dst,
 {
 	void *pages;
 
-	*dst = kmalloc(sizeof(**dst), GFP_KERNEL);
+	*dst = kmalloc_obj(**dst);
 	if (!*dst)
 		return -ENOMEM;
 

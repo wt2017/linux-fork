@@ -162,7 +162,7 @@ static int rdma_rw_init_mr_wrs(struct rdma_rw_ctx *ctx, struct ib_qp *qp,
 	int i, j, ret = 0, count = 0;
 
 	ctx->nr_ops = DIV_ROUND_UP(sg_cnt, pages_per_mr);
-	ctx->reg = kcalloc(ctx->nr_ops, sizeof(*ctx->reg), GFP_KERNEL);
+	ctx->reg = kzalloc_objs(*ctx->reg, ctx->nr_ops);
 	if (!ctx->reg) {
 		ret = -ENOMEM;
 		goto out;
@@ -213,8 +213,7 @@ static int rdma_rw_init_mr_wrs_bvec(struct rdma_rw_ctx *ctx, struct ib_qp *qp,
 	int i, ret, count = 0;
 	u32 nents = 0;
 
-	ctx->reg = kcalloc(DIV_ROUND_UP(nr_bvec, pages_per_mr),
-			   sizeof(*ctx->reg), GFP_KERNEL);
+	ctx->reg = kzalloc_objs(*ctx->reg, DIV_ROUND_UP(nr_bvec, pages_per_mr));
 	if (!ctx->reg)
 		return -ENOMEM;
 
@@ -222,9 +221,7 @@ static int rdma_rw_init_mr_wrs_bvec(struct rdma_rw_ctx *ctx, struct ib_qp *qp,
 	 * Build scatterlist from bvecs using the iterator. This follows
 	 * the pattern from __blk_rq_map_sg.
 	 */
-	ctx->reg[0].sgt.sgl = kmalloc_array(nr_bvec,
-					    sizeof(*ctx->reg[0].sgt.sgl),
-					    GFP_KERNEL);
+	ctx->reg[0].sgt.sgl = kmalloc_objs(*ctx->reg[0].sgt.sgl, nr_bvec);
 	if (!ctx->reg[0].sgt.sgl) {
 		ret = -ENOMEM;
 		goto out_free_reg;
@@ -298,11 +295,11 @@ static int rdma_rw_init_map_wrs(struct rdma_rw_ctx *ctx, struct ib_qp *qp,
 
 	ctx->nr_ops = DIV_ROUND_UP(sg_cnt, max_sge);
 
-	ctx->map.sges = sge = kcalloc(sg_cnt, sizeof(*sge), GFP_KERNEL);
+	ctx->map.sges = sge = kzalloc_objs(*sge, sg_cnt);
 	if (!ctx->map.sges)
 		goto out;
 
-	ctx->map.wrs = kcalloc(ctx->nr_ops, sizeof(*ctx->map.wrs), GFP_KERNEL);
+	ctx->map.wrs = kzalloc_objs(*ctx->map.wrs, ctx->nr_ops);
 	if (!ctx->map.wrs)
 		goto out_free_sges;
 
@@ -611,14 +608,29 @@ int rdma_rw_ctx_init(struct rdma_rw_ctx *ctx, struct ib_qp *qp, u32 port_num,
 	if (rdma_rw_io_needs_mr(qp->device, port_num, dir, sg_cnt)) {
 		ret = rdma_rw_init_mr_wrs(ctx, qp, port_num, sg, sg_cnt,
 				sg_offset, remote_addr, rkey, dir);
-	} else if (sg_cnt > 1) {
-		ret = rdma_rw_init_map_wrs(ctx, qp, sg, sg_cnt, sg_offset,
-				remote_addr, rkey, dir);
-	} else {
-		ret = rdma_rw_init_single_wr(ctx, qp, sg, sg_offset,
-				remote_addr, rkey, dir);
+		/*
+		 * If MR init succeeded or failed for a reason other
+		 * than pool exhaustion, that result is final.
+		 *
+		 * Pool exhaustion (-EAGAIN) from the max_sgl_rd
+		 * optimization is recoverable: fall back to
+		 * direct SGE posting. iWARP and force_mr require
+		 * MRs unconditionally, so -EAGAIN is terminal.
+		 */
+		if (ret != -EAGAIN ||
+		    rdma_protocol_iwarp(qp->device, port_num) ||
+		    unlikely(rdma_rw_force_mr))
+			goto out;
 	}
 
+	if (sg_cnt > 1)
+		ret = rdma_rw_init_map_wrs(ctx, qp, sg, sg_cnt, sg_offset,
+				remote_addr, rkey, dir);
+	else
+		ret = rdma_rw_init_single_wr(ctx, qp, sg, sg_offset,
+				remote_addr, rkey, dir);
+
+out:
 	if (ret < 0)
 		goto out_unmap_sg;
 	return ret;
@@ -689,14 +701,16 @@ int rdma_rw_ctx_init_bvec(struct rdma_rw_ctx *ctx, struct ib_qp *qp,
 		return ret;
 
 	/*
-	 * IOVA mapping not available. Check if MR registration provides
-	 * better performance than multiple SGE entries.
+	 * IOVA not available; fall back to the map_wrs path, which maps
+	 * each bvec as a direct SGE. This is always correct: the MR path
+	 * is a throughput optimization, not a correctness requirement.
+	 * (iWARP, which does require MRs, is handled by the check above.)
+	 *
+	 * The rdma_rw_io_needs_mr() gate is not used here because nr_bvec
+	 * is a raw page count that overstates DMA entry demand -- the bvec
+	 * caller has no post-DMA-coalescing segment count, and feeding the
+	 * inflated count into the MR path exhausts the pool on RDMA READs.
 	 */
-	if (rdma_rw_io_needs_mr(dev, port_num, dir, nr_bvec))
-		return rdma_rw_init_mr_wrs_bvec(ctx, qp, port_num, bvecs,
-						nr_bvec, &iter, remote_addr,
-						rkey, dir);
-
 	return rdma_rw_init_map_wrs_bvec(ctx, qp, bvecs, nr_bvec, &iter,
 			remote_addr, rkey, dir);
 }
@@ -757,7 +771,7 @@ int rdma_rw_ctx_signature_init(struct rdma_rw_ctx *ctx, struct ib_qp *qp,
 
 	ctx->type = RDMA_RW_SIG_MR;
 	ctx->nr_ops = 1;
-	ctx->reg = kzalloc(sizeof(*ctx->reg), GFP_KERNEL);
+	ctx->reg = kzalloc_obj(*ctx->reg);
 	if (!ctx->reg) {
 		ret = -ENOMEM;
 		goto out_unmap_prot_sg;

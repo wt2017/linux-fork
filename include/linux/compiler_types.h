@@ -432,18 +432,11 @@ struct ftrace_likely_data {
 #define at_least
 #endif
 
-/* Do not trap wrapping arithmetic within an annotated function. */
-#ifdef CONFIG_UBSAN_INTEGER_WRAP
-# define __signed_wrap __attribute__((no_sanitize("signed-integer-overflow")))
-#else
-# define __signed_wrap
-#endif
-
 /* Section for code which can't be instrumented at all */
 #define __noinstr_section(section)					\
 	noinline notrace __attribute((__section__(section)))		\
 	__no_kcsan __no_sanitize_address __no_profile __no_sanitize_coverage \
-	__no_sanitize_memory __signed_wrap
+	__no_sanitize_memory
 
 #define noinstr __noinstr_section(".noinstr.text")
 
@@ -552,7 +545,8 @@ struct ftrace_likely_data {
  *   gcc: https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html#index-_005f_005fbuiltin_005fcounted_005fby_005fref
  * clang: https://clang.llvm.org/docs/LanguageExtensions.html#builtin-counted-by-ref
  */
-#if __has_builtin(__builtin_counted_by_ref)
+#if __has_builtin(__builtin_counted_by_ref) && \
+    !defined(CONFIG_CC_HAS_BROKEN_COUNTED_BY_REF)
 /**
  * __flex_counter() - Get pointer to counter member for the given
  *                    flexible array, if it was annotated with __counted_by()

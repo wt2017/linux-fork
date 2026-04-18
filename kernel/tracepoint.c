@@ -103,8 +103,7 @@ static void tp_stub_func(void)
 
 static inline void *allocate_probes(int count)
 {
-	struct tp_probes *p  = kmalloc(struct_size(p, probes, count),
-				       GFP_KERNEL);
+	struct tp_probes *p  = kmalloc_flex(*p, probes, count);
 	return p == NULL ? NULL : p->probes;
 }
 
@@ -301,6 +300,8 @@ static int tracepoint_add_func(struct tracepoint *tp,
 			lockdep_is_held(&tracepoints_mutex));
 	old = func_add(&tp_funcs, func, prio);
 	if (IS_ERR(old)) {
+		if (tp->ext && tp->ext->unregfunc && !static_key_enabled(&tp->key))
+			tp->ext->unregfunc();
 		WARN_ON_ONCE(warn && PTR_ERR(old) != -ENOMEM);
 		return PTR_ERR(old);
 	}
@@ -615,7 +616,7 @@ static int tracepoint_module_coming(struct module *mod)
 	if (trace_module_has_bad_taint(mod))
 		return 0;
 
-	tp_mod = kmalloc(sizeof(struct tp_module), GFP_KERNEL);
+	tp_mod = kmalloc_obj(struct tp_module);
 	if (!tp_mod)
 		return -ENOMEM;
 	tp_mod->mod = mod;

@@ -41,8 +41,7 @@ xfs_extent_busy_insert_list(
 	struct rb_node		**rbp;
 	struct rb_node		*parent = NULL;
 
-	new = kzalloc(sizeof(struct xfs_extent_busy),
-			GFP_KERNEL | __GFP_NOFAIL);
+	new = kzalloc_obj(struct xfs_extent_busy, GFP_KERNEL | __GFP_NOFAIL);
 	new->group = xfs_group_hold(xg);
 	new->bno = bno;
 	new->length = len;
@@ -691,9 +690,9 @@ xfs_extent_busy_ag_cmp(
 		container_of(l2, struct xfs_extent_busy, list);
 	s32 diff;
 
-	diff = b1->group->xg_gno - b2->group->xg_gno;
+	diff = cmp_int(b1->group->xg_gno, b2->group->xg_gno);
 	if (!diff)
-		diff = b1->bno - b2->bno;
+		diff = cmp_int(b1->bno, b2->bno);
 	return diff;
 }
 
@@ -718,7 +717,7 @@ xfs_extent_busy_alloc(void)
 {
 	struct xfs_extent_busy_tree *eb;
 
-	eb = kzalloc(sizeof(*eb), GFP_KERNEL);
+	eb = kzalloc_obj(*eb);
 	if (!eb)
 		return NULL;
 	spin_lock_init(&eb->eb_lock);

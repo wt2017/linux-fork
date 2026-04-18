@@ -1074,7 +1074,7 @@ static int unshare_sighand(struct task_struct *me)
  */
 void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 {
-	size_t len = min(strlen(buf), sizeof(tsk->comm) - 1);
+	size_t len = strnlen(buf, sizeof(tsk->comm) - 1);
 
 	trace_task_rename(tsk, buf);
 	memcpy(tsk->comm, buf, len);
@@ -1402,7 +1402,7 @@ static struct linux_binprm *alloc_bprm(int fd, struct filename *filename, int fl
 	if (IS_ERR(file))
 		return ERR_CAST(file);
 
-	bprm = kzalloc(sizeof(*bprm), GFP_KERNEL);
+	bprm = kzalloc_obj(*bprm);
 	if (!bprm) {
 		do_close_execat(file);
 		return ERR_PTR(-ENOMEM);

@@ -562,9 +562,21 @@ static u64 pack_region_range(struct panthor_device *ptdev, u64 *region_start, u6
 	return region_width | *region_start;
 }
 
+static u32 panthor_mmu_as_fault_mask(struct panthor_device *ptdev, u32 as)
+{
+	return BIT(as);
+}
+
+/* Forward declaration to call helpers within as_enable/disable */
+static void panthor_mmu_irq_handler(struct panthor_device *ptdev, u32 status);
+PANTHOR_IRQ_HANDLER(mmu, MMU, panthor_mmu_irq_handler);
+
 static int panthor_mmu_as_enable(struct panthor_device *ptdev, u32 as_nr,
 				 u64 transtab, u64 transcfg, u64 memattr)
 {
+	panthor_mmu_irq_enable_events(&ptdev->mmu->irq,
+				      panthor_mmu_as_fault_mask(ptdev, as_nr));
+
 	gpu_write64(ptdev, AS_TRANSTAB(as_nr), transtab);
 	gpu_write64(ptdev, AS_MEMATTR(as_nr), memattr);
 	gpu_write64(ptdev, AS_TRANSCFG(as_nr), transcfg);
@@ -579,6 +591,9 @@ static int panthor_mmu_as_disable(struct panthor_device *ptdev, u32 as_nr,
 	int ret;
 
 	lockdep_assert_held(&ptdev->mmu->as.slots_lock);
+
+	panthor_mmu_irq_disable_events(&ptdev->mmu->irq,
+				       panthor_mmu_as_fault_mask(ptdev, as_nr));
 
 	/* Flush+invalidate RW caches, invalidate RO ones. */
 	ret = panthor_gpu_flush_caches(ptdev, CACHE_CLEAN | CACHE_INV,
@@ -610,11 +625,6 @@ static u32 panthor_mmu_fault_mask(struct panthor_device *ptdev, u32 value)
 {
 	/* Bits 16 to 31 mean REQ_COMPLETE. */
 	return value & GENMASK(15, 0);
-}
-
-static u32 panthor_mmu_as_fault_mask(struct panthor_device *ptdev, u32 as)
-{
-	return BIT(as);
 }
 
 /**
@@ -670,6 +680,7 @@ int panthor_vm_active(struct panthor_vm *vm)
 	struct io_pgtable_cfg *cfg = &io_pgtable_ops_to_pgtable(vm->pgtbl_ops)->cfg;
 	int ret = 0, as, cookie;
 	u64 transtab, transcfg;
+	u32 fault_mask;
 
 	if (!drm_dev_enter(&ptdev->base, &cookie))
 		return -ENODEV;
@@ -743,14 +754,13 @@ out_enable_as:
 	/* If the VM is re-activated, we clear the fault. */
 	vm->unhandled_fault = false;
 
-	/* Unhandled pagefault on this AS, clear the fault and re-enable interrupts
-	 * before enabling the AS.
+	/* Unhandled pagefault on this AS, clear the fault and enable the AS,
+	 * which re-enables interrupts.
 	 */
-	if (ptdev->mmu->as.faulty_mask & panthor_mmu_as_fault_mask(ptdev, as)) {
-		gpu_write(ptdev, MMU_INT_CLEAR, panthor_mmu_as_fault_mask(ptdev, as));
-		ptdev->mmu->as.faulty_mask &= ~panthor_mmu_as_fault_mask(ptdev, as);
-		ptdev->mmu->irq.mask |= panthor_mmu_as_fault_mask(ptdev, as);
-		gpu_write(ptdev, MMU_INT_MASK, ~ptdev->mmu->as.faulty_mask);
+	fault_mask = panthor_mmu_as_fault_mask(ptdev, as);
+	if (ptdev->mmu->as.faulty_mask & fault_mask) {
+		gpu_write(ptdev, MMU_INT_CLEAR, fault_mask);
+		ptdev->mmu->as.faulty_mask &= ~fault_mask;
 	}
 
 	/* The VM update is guarded by ::op_lock, which we take at the beginning
@@ -1159,7 +1169,7 @@ panthor_vm_op_ctx_prealloc_vmas(struct panthor_vm_op_ctx *op_ctx)
 	}
 
 	for (u32 i = 0; i < vma_count; i++) {
-		struct panthor_vma *vma = kzalloc(sizeof(*vma), GFP_KERNEL);
+		struct panthor_vma *vma = kzalloc_obj(*vma);
 
 		if (!vma)
 			return -ENOMEM;
@@ -1257,9 +1267,8 @@ static int panthor_vm_prepare_map_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 		   ((ALIGN(va + size, 1ull << 30) - ALIGN_DOWN(va, 1ull << 30)) >> 30) +
 		   ((ALIGN(va + size, 1ull << 21) - ALIGN_DOWN(va, 1ull << 21)) >> 21);
 
-	op_ctx->rsvd_page_tables.pages = kcalloc(pt_count,
-						 sizeof(*op_ctx->rsvd_page_tables.pages),
-						 GFP_KERNEL);
+	op_ctx->rsvd_page_tables.pages = kzalloc_objs(*op_ctx->rsvd_page_tables.pages,
+						      pt_count);
 	if (!op_ctx->rsvd_page_tables.pages) {
 		ret = -ENOMEM;
 		goto err_cleanup;
@@ -1312,9 +1321,8 @@ static int panthor_vm_prepare_unmap_op_ctx(struct panthor_vm_op_ctx *op_ctx,
 		goto err_cleanup;
 
 	if (pt_count) {
-		op_ctx->rsvd_page_tables.pages = kcalloc(pt_count,
-							 sizeof(*op_ctx->rsvd_page_tables.pages),
-							 GFP_KERNEL);
+		op_ctx->rsvd_page_tables.pages = kzalloc_objs(*op_ctx->rsvd_page_tables.pages,
+							      pt_count);
 		if (!op_ctx->rsvd_page_tables.pages) {
 			ret = -ENOMEM;
 			goto err_cleanup;
@@ -1587,7 +1595,7 @@ void panthor_vm_pool_destroy(struct panthor_file *pfile)
  */
 int panthor_vm_pool_create(struct panthor_file *pfile)
 {
-	pfile->vms = kzalloc(sizeof(*pfile->vms), GFP_KERNEL);
+	pfile->vms = kzalloc_obj(*pfile->vms);
 	if (!pfile->vms)
 		return -ENOMEM;
 
@@ -1698,7 +1706,6 @@ static void panthor_mmu_irq_handler(struct panthor_device *ptdev, u32 status)
 	while (status) {
 		u32 as = ffs(status | (status >> 16)) - 1;
 		u32 mask = panthor_mmu_as_fault_mask(ptdev, as);
-		u32 new_int_mask;
 		u64 addr;
 		u32 fault_status;
 		u32 exception_type;
@@ -1716,8 +1723,6 @@ static void panthor_mmu_irq_handler(struct panthor_device *ptdev, u32 status)
 		mutex_lock(&ptdev->mmu->as.slots_lock);
 
 		ptdev->mmu->as.faulty_mask |= mask;
-		new_int_mask =
-			panthor_mmu_fault_mask(ptdev, ~ptdev->mmu->as.faulty_mask);
 
 		/* terminal fault, print info about the fault */
 		drm_err(&ptdev->base,
@@ -1741,11 +1746,6 @@ static void panthor_mmu_irq_handler(struct panthor_device *ptdev, u32 status)
 		 */
 		gpu_write(ptdev, MMU_INT_CLEAR, mask);
 
-		/* Ignore MMU interrupts on this AS until it's been
-		 * re-enabled.
-		 */
-		ptdev->mmu->irq.mask = new_int_mask;
-
 		if (ptdev->mmu->as.slots[as].vm)
 			ptdev->mmu->as.slots[as].vm->unhandled_fault = true;
 
@@ -1760,7 +1760,6 @@ static void panthor_mmu_irq_handler(struct panthor_device *ptdev, u32 status)
 	if (has_unhandled_faults)
 		panthor_sched_report_mmu_fault(ptdev);
 }
-PANTHOR_IRQ_HANDLER(mmu, MMU, panthor_mmu_irq_handler);
 
 /**
  * panthor_mmu_suspend() - Suspend the MMU logic
@@ -1805,7 +1804,7 @@ void panthor_mmu_resume(struct panthor_device *ptdev)
 	ptdev->mmu->as.faulty_mask = 0;
 	mutex_unlock(&ptdev->mmu->as.slots_lock);
 
-	panthor_mmu_irq_resume(&ptdev->mmu->irq, panthor_mmu_fault_mask(ptdev, ~0));
+	panthor_mmu_irq_resume(&ptdev->mmu->irq);
 }
 
 /**
@@ -1859,7 +1858,7 @@ void panthor_mmu_post_reset(struct panthor_device *ptdev)
 
 	mutex_unlock(&ptdev->mmu->as.slots_lock);
 
-	panthor_mmu_irq_resume(&ptdev->mmu->irq, panthor_mmu_fault_mask(ptdev, ~0));
+	panthor_mmu_irq_resume(&ptdev->mmu->irq);
 
 	/* Restart the VM_BIND queues. */
 	mutex_lock(&ptdev->mmu->vm.lock);
@@ -2426,7 +2425,7 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
 	struct panthor_vm *vm;
 	int ret;
 
-	vm = kzalloc(sizeof(*vm), GFP_KERNEL);
+	vm = kzalloc_obj(*vm);
 	if (!vm)
 		return ERR_PTR(-ENOMEM);
 
@@ -2609,7 +2608,7 @@ panthor_vm_bind_job_create(struct drm_file *file,
 	if (vm->destroyed || vm->unusable)
 		return ERR_PTR(-EINVAL);
 
-	job = kzalloc(sizeof(*job), GFP_KERNEL);
+	job = kzalloc_obj(*job);
 	if (!job)
 		return ERR_PTR(-ENOMEM);
 

@@ -815,7 +815,7 @@ static int spi_engine_optimize_message(struct spi_message *msg)
 	p_dry.length = 0;
 	spi_engine_compile_message(msg, true, &p_dry);
 
-	p = kzalloc(struct_size(p, instructions, p_dry.length + 1), GFP_KERNEL);
+	p = kzalloc_flex(*p, instructions, p_dry.length + 1);
 	if (!p)
 		return -ENOMEM;
 
@@ -953,7 +953,7 @@ static int spi_engine_transfer_one_message(struct spi_controller *host,
 		struct spi_transfer *xfer;
 
 		list_for_each_entry(xfer, &msg->transfers, transfer_list)
-			trace_spi_transfer_start(msg, xfer);
+			trace_call__spi_transfer_start(msg, xfer);
 	}
 
 	spin_lock_irqsave(&spi_engine->lock, flags);
@@ -987,7 +987,7 @@ static int spi_engine_transfer_one_message(struct spi_controller *host,
 		struct spi_transfer *xfer;
 
 		list_for_each_entry(xfer, &msg->transfers, transfer_list)
-			trace_spi_transfer_stop(msg, xfer);
+			trace_call__spi_transfer_stop(msg, xfer);
 	}
 
 out:

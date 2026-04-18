@@ -10,6 +10,7 @@
 #include "dax-private.h"
 #include "bus.h"
 
+static struct resource dax_regions = DEFINE_RES_MEM_NAMED(0, -1, "DAX Regions");
 static DEFINE_MUTEX(dax_bus_lock);
 
 /*
@@ -110,7 +111,7 @@ static ssize_t do_id_store(struct device_driver *drv, const char *buf,
 	dax_id = __dax_match_id(dax_drv, buf);
 	if (!dax_id) {
 		if (action == ID_ADD) {
-			dax_id = kzalloc(sizeof(*dax_id), GFP_KERNEL);
+			dax_id = kzalloc_obj(*dax_id);
 			if (dax_id) {
 				strscpy(dax_id->dev_name, buf, DAX_NAME_LEN);
 				list_add(&dax_id->list, &dax_drv->ids);
@@ -627,6 +628,7 @@ static void dax_region_unregister(void *region)
 
 	sysfs_remove_groups(&dax_region->dev->kobj,
 			dax_region_attribute_groups);
+	release_resource(&dax_region->res);
 	dax_region_put(dax_region);
 }
 
@@ -635,6 +637,7 @@ struct dax_region *alloc_dax_region(struct device *parent, int region_id,
 		unsigned long flags)
 {
 	struct dax_region *dax_region;
+	int rc;
 
 	/*
 	 * The DAX core assumes that it can store its private data in
@@ -650,7 +653,7 @@ struct dax_region *alloc_dax_region(struct device *parent, int region_id,
 			|| !IS_ALIGNED(range_len(range), align))
 		return NULL;
 
-	dax_region = kzalloc(sizeof(*dax_region), GFP_KERNEL);
+	dax_region = kzalloc_obj(*dax_region);
 	if (!dax_region)
 		return NULL;
 
@@ -667,14 +670,25 @@ struct dax_region *alloc_dax_region(struct device *parent, int region_id,
 		.flags = IORESOURCE_MEM | flags,
 	};
 
-	if (sysfs_create_groups(&parent->kobj, dax_region_attribute_groups)) {
-		kfree(dax_region);
-		return NULL;
+	rc = request_resource(&dax_regions, &dax_region->res);
+	if (rc) {
+		dev_dbg(parent, "dax_region resource conflict for %pR\n",
+			&dax_region->res);
+		goto err_res;
 	}
+
+	if (sysfs_create_groups(&parent->kobj, dax_region_attribute_groups))
+		goto err_sysfs;
 
 	if (devm_add_action_or_reset(parent, dax_region_unregister, dax_region))
 		return NULL;
 	return dax_region;
+
+err_sysfs:
+	release_resource(&dax_region->res);
+err_res:
+	dax_region_put(dax_region);
+	return NULL;
 }
 EXPORT_SYMBOL_GPL(alloc_dax_region);
 
@@ -807,7 +821,7 @@ static int devm_register_dax_mapping(struct dev_dax *dev_dax, int range_id)
 				"region disabled\n"))
 		return -ENXIO;
 
-	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
+	mapping = kzalloc_obj(*mapping);
 	if (!mapping)
 		return -ENOMEM;
 	mapping->range_id = range_id;
@@ -1427,7 +1441,7 @@ static struct dev_dax *__devm_create_dev_dax(struct dev_dax_data *data)
 	struct device *dev;
 	int rc;
 
-	dev_dax = kzalloc(sizeof(*dev_dax), GFP_KERNEL);
+	dev_dax = kzalloc_obj(*dev_dax);
 	if (!dev_dax)
 		return ERR_PTR(-ENOMEM);
 

@@ -505,6 +505,7 @@ static bool is_string_attr(enum hwmon_sensor_types type, u32 attr)
 	       (type == hwmon_curr && attr == hwmon_curr_label) ||
 	       (type == hwmon_power && attr == hwmon_power_label) ||
 	       (type == hwmon_energy && attr == hwmon_energy_label) ||
+	       (type == hwmon_energy64 && attr == hwmon_energy_label) ||
 	       (type == hwmon_humidity && attr == hwmon_humidity_label) ||
 	       (type == hwmon_fan && attr == hwmon_fan_label);
 }
@@ -533,7 +534,7 @@ static struct attribute *hwmon_genattr(const void *drvdata,
 	if ((mode & 0222) && !ops->write)
 		return ERR_PTR(-EINVAL);
 
-	hattr = kzalloc(sizeof(*hattr), GFP_KERNEL);
+	hattr = kzalloc_obj(*hattr);
 	if (!hattr)
 		return ERR_PTR(-ENOMEM);
 
@@ -879,7 +880,7 @@ __hwmon_create_attrs(const void *drvdata, const struct hwmon_chip_info *chip)
 	if (nattrs == 0)
 		return ERR_PTR(-EINVAL);
 
-	attrs = kcalloc(nattrs + 1, sizeof(*attrs), GFP_KERNEL);
+	attrs = kzalloc_objs(*attrs, nattrs + 1);
 	if (!attrs)
 		return ERR_PTR(-ENOMEM);
 
@@ -917,7 +918,7 @@ __hwmon_device_register(struct device *dev, const char *name, void *drvdata,
 	if (id < 0)
 		return ERR_PTR(id);
 
-	hwdev = kzalloc(sizeof(*hwdev), GFP_KERNEL);
+	hwdev = kzalloc_obj(*hwdev);
 	if (hwdev == NULL) {
 		err = -ENOMEM;
 		goto ida_remove;
@@ -933,7 +934,7 @@ __hwmon_device_register(struct device *dev, const char *name, void *drvdata,
 			for (i = 0; groups[i]; i++)
 				ngroups++;
 
-		hwdev->groups = kcalloc(ngroups, sizeof(*groups), GFP_KERNEL);
+		hwdev->groups = kzalloc_objs(*groups, ngroups);
 		if (!hwdev->groups) {
 			err = -ENOMEM;
 			goto free_hwmon;

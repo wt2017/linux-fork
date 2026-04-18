@@ -83,7 +83,7 @@ void amdgpu_driver_unload_kms(struct drm_device *dev)
 {
 	struct amdgpu_device *adev = drm_to_adev(dev);
 
-	if (adev == NULL)
+	if (adev == NULL || !adev->num_ip_blocks)
 		return;
 
 	amdgpu_unregister_gpu_instance(adev);
@@ -942,7 +942,7 @@ out:
 		uint64_t vm_size;
 		uint32_t pcie_gen_mask, pcie_width_mask;
 
-		dev_info = kzalloc(sizeof(*dev_info), GFP_KERNEL);
+		dev_info = kzalloc_obj(*dev_info);
 		if (!dev_info)
 			return -ENOMEM;
 
@@ -1329,7 +1329,7 @@ out:
 			return -EINVAL;
 		}
 
-		caps = kzalloc(sizeof(*caps), GFP_KERNEL);
+		caps = kzalloc_obj(*caps);
 		if (!caps)
 			return -ENOMEM;
 
@@ -1522,10 +1522,7 @@ int amdgpu_driver_open_kms(struct drm_device *dev, struct drm_file *file_priv)
 			 "Failed to init usermode queue manager (%d), use legacy workload submission only\n",
 			 r);
 
-	r = amdgpu_eviction_fence_init(&fpriv->evf_mgr);
-	if (r)
-		goto error_vm;
-
+	amdgpu_evf_mgr_init(&fpriv->evf_mgr);
 	amdgpu_ctx_mgr_init(&fpriv->ctx_mgr, adev);
 
 	file_priv->driver_priv = fpriv;

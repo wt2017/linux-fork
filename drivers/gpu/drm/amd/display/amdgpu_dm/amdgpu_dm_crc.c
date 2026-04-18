@@ -812,7 +812,6 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 	unsigned long flags1;
 	bool forward_roi_change = false;
 	bool notify_ta = false;
-	bool all_crc_ready = true;
 	struct dc_stream_state *stream_state;
 	int i;
 
@@ -936,9 +935,6 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 			continue;
 		}
 
-		if (!crtc_ctx->crc_info.crc[i].crc_ready)
-			all_crc_ready = false;
-
 		if (reset_crc_frame_count[i] || crtc_ctx->crc_info.crc[i].frame_count == UINT_MAX)
 			/* Reset the reference frame count after user update the ROI
 			 * or it reaches the maximum value.
@@ -948,9 +944,6 @@ void amdgpu_dm_crtc_handle_crc_window_irq(struct drm_crtc *crtc)
 			crtc_ctx->crc_info.crc[i].frame_count += 1;
 	}
 	spin_unlock_irqrestore(&crtc_ctx->crc_info.lock, flags1);
-
-	if (all_crc_ready)
-		complete_all(&crtc_ctx->crc_info.completion);
 }
 
 void amdgpu_dm_crtc_secure_display_create_contexts(struct amdgpu_device *adev)
@@ -958,9 +951,8 @@ void amdgpu_dm_crtc_secure_display_create_contexts(struct amdgpu_device *adev)
 	struct secure_display_crtc_context *crtc_ctx = NULL;
 	int i;
 
-	crtc_ctx = kcalloc(adev->mode_info.num_crtc,
-				      sizeof(struct secure_display_crtc_context),
-				      GFP_KERNEL);
+	crtc_ctx = kzalloc_objs(struct secure_display_crtc_context,
+				adev->mode_info.num_crtc);
 
 	if (!crtc_ctx) {
 		adev->dm.secure_display_ctx.crtc_ctx = NULL;

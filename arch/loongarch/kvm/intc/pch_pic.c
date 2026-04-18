@@ -3,6 +3,7 @@
  * Copyright (C) 2024 Loongson Technology Corporation Limited
  */
 
+#include <asm/kvm_dmsintc.h>
 #include <asm/kvm_eiointc.h>
 #include <asm/kvm_pch_pic.h>
 #include <asm/kvm_vcpu.h>
@@ -67,9 +68,19 @@ void pch_pic_set_irq(struct loongarch_pch_pic *s, int irq, int level)
 }
 
 /* msi irq handler */
-void pch_msi_set_irq(struct kvm *kvm, int irq, int level)
+int pch_msi_set_irq(struct kvm *kvm, struct kvm_kernel_irq_routing_entry *e, int level)
 {
-	eiointc_set_irq(kvm->arch.eiointc, irq, level);
+	u64 msg_addr = (((u64)e->msi.address_hi) << 32) | e->msi.address_lo;
+
+	if (cpu_has_msgint && kvm->arch.dmsintc &&
+		msg_addr >= kvm->arch.dmsintc->msg_addr_base &&
+		msg_addr < (kvm->arch.dmsintc->msg_addr_base + kvm->arch.dmsintc->msg_addr_size)) {
+		return dmsintc_set_irq(kvm, msg_addr, e->msi.data, level);
+	}
+
+	eiointc_set_irq(kvm->arch.eiointc, e->msi.data, level);
+
+	return 0;
 }
 
 static int loongarch_pch_pic_read(struct loongarch_pch_pic *s, gpa_t addr, int len, void *val)
@@ -402,7 +413,7 @@ static int kvm_setup_default_irq_routing(struct kvm *kvm)
 	u32 nr = KVM_IRQCHIP_NUM_PINS;
 	struct kvm_irq_routing_entry *entries;
 
-	entries = kcalloc(nr, sizeof(*entries), GFP_KERNEL);
+	entries = kzalloc_objs(*entries, nr);
 	if (!entries)
 		return -ENOMEM;
 
@@ -432,7 +443,7 @@ static int kvm_pch_pic_create(struct kvm_device *dev, u32 type)
 	if (ret)
 		return -ENOMEM;
 
-	s = kzalloc(sizeof(struct loongarch_pch_pic), GFP_KERNEL);
+	s = kzalloc_obj(struct loongarch_pch_pic);
 	if (!s)
 		return -ENOMEM;
 

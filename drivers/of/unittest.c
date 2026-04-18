@@ -197,7 +197,7 @@ static void __init of_unittest_dynamic(void)
 	}
 
 	/* Array of 4 properties for the purpose of testing */
-	prop = kcalloc(4, sizeof(*prop), GFP_KERNEL);
+	prop = kzalloc_objs(*prop, 4);
 	if (!prop) {
 		unittest(0, "kzalloc() failed\n");
 		return;
@@ -379,7 +379,7 @@ static void __init of_unittest_check_phandles(void)
 			}
 		}
 
-		nh = kzalloc(sizeof(*nh), GFP_KERNEL);
+		nh = kzalloc_obj(*nh);
 		if (!nh)
 			return;
 
@@ -896,8 +896,6 @@ static void __init of_unittest_changeset(void)
 
 	unittest(!of_changeset_apply(&chgset), "apply failed\n");
 
-	of_node_put(nchangeset);
-
 	/* Make sure node names are constructed correctly */
 	unittest((np = of_find_node_by_path("/testcase-data/changeset/n2/n21")),
 		 "'%pOF' not added\n", n21);
@@ -919,6 +917,7 @@ static void __init of_unittest_changeset(void)
 	if (!ret)
 		unittest(strcmp(propstr, "hello") == 0, "original value not in updated property after revert");
 
+	of_node_put(nchangeset);
 	of_changeset_destroy(&chgset);
 
 	of_node_put(n1);
@@ -1136,7 +1135,7 @@ static void __init of_unittest_dma_ranges_one(const char *path,
 		dma_addr_t	dma_addr;
 		struct device	*dev_bogus;
 
-		dev_bogus = kzalloc(sizeof(struct device), GFP_KERNEL);
+		dev_bogus = kzalloc_obj(struct device);
 		if (!dev_bogus) {
 			unittest(0, "kzalloc() failed\n");
 			kfree(map);
@@ -2275,7 +2274,7 @@ static int unittest_gpio_probe(struct platform_device *pdev)
 
 	unittest_gpio_probe_count++;
 
-	devptr = kzalloc(sizeof(*devptr), GFP_KERNEL);
+	devptr = kzalloc_obj(*devptr);
 	if (!devptr)
 		return -ENOMEM;
 
@@ -4318,7 +4317,6 @@ static int testdrv_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	size = info->dtbo_end - info->dtbo_begin;
 	ret = of_overlay_fdt_apply(info->dtbo_begin, size, &ovcs_id, dn);
-	of_node_put(dn);
 	if (ret)
 		return ret;
 

@@ -4348,9 +4348,8 @@ static int __iwl_mvm_mac_set_key(struct ieee80211_hw *hw,
 			int tid, q;
 
 			WARN_ON(rcu_access_pointer(mvmsta->ptk_pn[keyidx]));
-			ptk_pn = kzalloc(struct_size(ptk_pn, q,
-						     mvm->trans->info.num_rxqs),
-					 GFP_KERNEL);
+			ptk_pn = kzalloc_flex(*ptk_pn, q,
+					      mvm->trans->info.num_rxqs);
 			if (!ptk_pn) {
 				ret = -ENOMEM;
 				break;
@@ -6230,9 +6229,10 @@ void iwl_mvm_sync_rx_queues_internal(struct iwl_mvm *mvm,
 		ret = wait_event_timeout(mvm->rx_sync_waitq,
 					 READ_ONCE(mvm->queue_sync_state) == 0,
 					 SYNC_RX_QUEUE_TIMEOUT);
-		WARN_ONCE(!ret, "queue sync: failed to sync, state is 0x%lx, cookie %d\n",
-			  mvm->queue_sync_state,
-			  mvm->queue_sync_cookie);
+		IWL_FW_CHECK(mvm, !ret,
+			     "queue sync: failed to sync, state is 0x%lx, cookie %d\n",
+			     mvm->queue_sync_state,
+			     mvm->queue_sync_cookie);
 	}
 
 out:

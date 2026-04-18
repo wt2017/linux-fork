@@ -361,19 +361,13 @@ static int stm32_cryp_it_start(struct stm32_cryp *cryp);
 
 static struct stm32_cryp *stm32_cryp_find_dev(struct stm32_cryp_ctx *ctx)
 {
-	struct stm32_cryp *tmp, *cryp = NULL;
+	struct stm32_cryp *cryp;
 
 	spin_lock_bh(&cryp_list.lock);
-	if (!ctx->cryp) {
-		list_for_each_entry(tmp, &cryp_list.dev_list, list) {
-			cryp = tmp;
-			break;
-		}
-		ctx->cryp = cryp;
-	} else {
-		cryp = ctx->cryp;
-	}
-
+	if (!ctx->cryp)
+		ctx->cryp = list_first_entry_or_null(&cryp_list.dev_list,
+						     struct stm32_cryp, list);
+	cryp = ctx->cryp;
 	spin_unlock_bh(&cryp_list.lock);
 
 	return cryp;
@@ -1498,7 +1492,7 @@ static int stm32_cryp_truncate_sg(struct scatterlist **new_sg, size_t *new_sg_le
 		return alloc_sg_len;
 
 	/* We allocate to much sg entry, but it is easier */
-	*new_sg = kmalloc_array((size_t)alloc_sg_len, sizeof(struct scatterlist), GFP_KERNEL);
+	*new_sg = kmalloc_objs(struct scatterlist, (size_t)alloc_sg_len);
 	if (!*new_sg)
 		return -ENOMEM;
 

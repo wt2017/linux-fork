@@ -65,16 +65,16 @@ struct x509_certificate *x509_cert_parse(const void *data, size_t datalen)
 	struct asymmetric_key_id *kid;
 	long ret;
 
-	cert = kzalloc(sizeof(struct x509_certificate), GFP_KERNEL);
+	cert = kzalloc_obj(struct x509_certificate);
 	if (!cert)
 		return ERR_PTR(-ENOMEM);
-	cert->pub = kzalloc(sizeof(struct public_key), GFP_KERNEL);
+	cert->pub = kzalloc_obj(struct public_key);
 	if (!cert->pub)
 		return ERR_PTR(-ENOMEM);
-	cert->sig = kzalloc(sizeof(struct public_key_signature), GFP_KERNEL);
+	cert->sig = kzalloc_obj(struct public_key_signature);
 	if (!cert->sig)
 		return ERR_PTR(-ENOMEM);
-	ctx = kzalloc(sizeof(struct x509_parse_context), GFP_KERNEL);
+	ctx = kzalloc_obj(struct x509_parse_context);
 	if (!ctx)
 		return ERR_PTR(-ENOMEM);
 
@@ -609,9 +609,9 @@ int x509_process_extension(void *context, size_t hdrlen,
 		 *   0x04 is where keyCertSign lands in this bit string
 		 *   0x80 is where digitalSignature lands in this bit string
 		 */
-		if (v[0] != ASN1_BTS)
-			return -EBADMSG;
 		if (vlen < 4)
+			return -EBADMSG;
+		if (v[0] != ASN1_BTS)
 			return -EBADMSG;
 		if (v[2] >= 8)
 			return -EBADMSG;
@@ -645,9 +645,9 @@ int x509_process_extension(void *context, size_t hdrlen,
 		 *	(Expect 0xFF if the CA is TRUE)
 		 * vlen should match the entire extension size
 		 */
-		if (v[0] != (ASN1_CONS_BIT | ASN1_SEQ))
-			return -EBADMSG;
 		if (vlen < 2)
+			return -EBADMSG;
+		if (v[0] != (ASN1_CONS_BIT | ASN1_SEQ))
 			return -EBADMSG;
 		if (v[1] != vlen - 2)
 			return -EBADMSG;

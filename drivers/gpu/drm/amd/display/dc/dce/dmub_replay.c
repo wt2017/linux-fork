@@ -216,6 +216,7 @@ static void dmub_replay_set_coasting_vtotal(struct dmub_replay *dmub,
 		uint8_t panel_inst,
 		uint16_t frame_skip_number)
 {
+	(void)panel_inst;
 	union dmub_rb_cmd cmd;
 	struct dc_context *dc = dmub->ctx;
 	struct dmub_rb_cmd_replay_set_coasting_vtotal *pCmd = NULL;
@@ -438,7 +439,7 @@ static void dmub_replay_construct(struct dmub_replay *replay, struct dc_context 
  */
 struct dmub_replay *dmub_replay_create(struct dc_context *ctx)
 {
-	struct dmub_replay *replay = kzalloc(sizeof(struct dmub_replay), GFP_KERNEL);
+	struct dmub_replay *replay = kzalloc_obj(struct dmub_replay);
 
 	if (replay == NULL) {
 		BREAK_TO_DEBUGGER();

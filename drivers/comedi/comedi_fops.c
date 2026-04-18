@@ -793,13 +793,15 @@ static void do_become_nonbusy(struct comedi_device *dev,
 	__comedi_clear_subdevice_runflags(s, COMEDI_SRF_RUNNING |
 					     COMEDI_SRF_BUSY);
 	spin_unlock_irqrestore(&s->spin_lock, flags);
-	if (comedi_is_runflags_busy(runflags)) {
+	if (async) {
 		/*
 		 * "Run active" counter was set to 1 when setting up the
 		 * command.  Decrement it and wait for it to become 0.
 		 */
-		comedi_put_is_subdevice_running(s);
-		wait_for_completion(&async->run_complete);
+		if (comedi_is_runflags_busy(runflags)) {
+			comedi_put_is_subdevice_running(s);
+			wait_for_completion(&async->run_complete);
+		}
 		comedi_buf_reset(s);
 		async->inttrig = NULL;
 		kfree(async->cmd.chanlist);
@@ -1058,7 +1060,7 @@ static int do_subdinfo_ioctl(struct comedi_device *dev,
 	struct comedi_subdevice *s;
 
 	lockdep_assert_held(&dev->mutex);
-	tmp = kcalloc(dev->n_subdevices, sizeof(*tmp), GFP_KERNEL);
+	tmp = kzalloc_objs(*tmp, dev->n_subdevices);
 	if (!tmp)
 		return -ENOMEM;
 
@@ -2588,7 +2590,7 @@ static int comedi_mmap(struct file *file, struct vm_area_struct *vma)
 	 * remap_pfn_range() because we call remap_pfn_range() in a loop.
 	 */
 	if (retval)
-		zap_vma_ptes(vma, vma->vm_start, size);
+		zap_special_vma_range(vma, vma->vm_start, size);
 #endif
 
 	if (retval == 0) {
@@ -2969,7 +2971,7 @@ static int comedi_open(struct inode *inode, struct file *file)
 		return -ENODEV;
 	}
 
-	cfp = kzalloc(sizeof(*cfp), GFP_KERNEL);
+	cfp = kzalloc_obj(*cfp);
 	if (!cfp) {
 		comedi_dev_put(dev);
 		return -ENOMEM;
@@ -3322,7 +3324,7 @@ static int compat_insnlist(struct file *file, unsigned long arg)
 	rc = check_insnlist_len(dev, insnlist32.n_insns);
 	if (rc)
 		return rc;
-	insns = kcalloc(insnlist32.n_insns, sizeof(*insns), GFP_KERNEL);
+	insns = kzalloc_objs(*insns, insnlist32.n_insns);
 	if (!insns)
 		return -ENOMEM;
 
@@ -3505,7 +3507,7 @@ struct comedi_device *comedi_alloc_board_minor(struct device *hardware_device)
 	struct device *csdev;
 	unsigned int i;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
 	comedi_device_init(dev);

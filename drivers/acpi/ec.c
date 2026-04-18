@@ -35,9 +35,6 @@
 
 #include "internal.h"
 
-#define ACPI_EC_CLASS			"embedded_controller"
-#define ACPI_EC_DEVICE_NAME		"Embedded Controller"
-
 /* EC status register */
 #define ACPI_EC_FLAG_OBF	0x01	/* Output buffer full */
 #define ACPI_EC_FLAG_IBF	0x02	/* Input buffer full */
@@ -1100,7 +1097,7 @@ int acpi_ec_add_query_handler(struct acpi_ec *ec, u8 query_bit,
 	if (!handle && !func)
 		return -EINVAL;
 
-	handler = kzalloc(sizeof(*handler), GFP_KERNEL);
+	handler = kzalloc_obj(*handler);
 	if (!handler)
 		return -ENOMEM;
 
@@ -1177,7 +1174,7 @@ static struct acpi_ec_query *acpi_ec_create_query(struct acpi_ec *ec, u8 *pval)
 	struct acpi_ec_query *q;
 	struct transaction *t;
 
-	q = kzalloc(sizeof (struct acpi_ec_query), GFP_KERNEL);
+	q = kzalloc_obj(struct acpi_ec_query);
 	if (!q)
 		return NULL;
 
@@ -1422,7 +1419,7 @@ static void acpi_ec_free(struct acpi_ec *ec)
 
 static struct acpi_ec *acpi_ec_alloc(void)
 {
-	struct acpi_ec *ec = kzalloc(sizeof(struct acpi_ec), GFP_KERNEL);
+	struct acpi_ec *ec = kzalloc_obj(struct acpi_ec);
 
 	if (!ec)
 		return NULL;
@@ -1656,6 +1653,8 @@ static int acpi_ec_setup(struct acpi_ec *ec, struct acpi_device *device, bool ca
 
 	ret = ec_install_handlers(ec, device, call_reg);
 	if (ret) {
+		ec_remove_handlers(ec);
+
 		if (ec == first_ec)
 			first_ec = NULL;
 
@@ -1680,9 +1679,6 @@ static int acpi_ec_probe(struct platform_device *pdev)
 	struct acpi_device *device = ACPI_COMPANION(&pdev->dev);
 	struct acpi_ec *ec;
 	int ret;
-
-	strscpy(acpi_device_name(device), ACPI_EC_DEVICE_NAME);
-	strscpy(acpi_device_class(device), ACPI_EC_CLASS);
 
 	if (boot_ec && (boot_ec->handle == device->handle ||
 	    !strcmp(acpi_device_hid(device), ACPI_ECDT_HID))) {

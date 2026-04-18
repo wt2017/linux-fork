@@ -132,7 +132,7 @@ static int idpf_mb_clean(struct idpf_adapter *adapter,
 	struct idpf_dma_mem *dma_mem;
 	int err;
 
-	q_msg = kcalloc(num_q_msg, sizeof(struct idpf_ctlq_msg *), GFP_ATOMIC);
+	q_msg = kzalloc_objs(struct idpf_ctlq_msg *, num_q_msg, GFP_ATOMIC);
 	if (!q_msg)
 		return -ENOMEM;
 
@@ -238,11 +238,11 @@ int idpf_send_mb_msg(struct idpf_adapter *adapter, struct idpf_ctlq_info *asq,
 	if (err)
 		return err;
 
-	ctlq_msg = kzalloc(sizeof(*ctlq_msg), GFP_ATOMIC);
+	ctlq_msg = kzalloc_obj(*ctlq_msg, GFP_ATOMIC);
 	if (!ctlq_msg)
 		return -ENOMEM;
 
-	dma_mem = kzalloc(sizeof(*dma_mem), GFP_ATOMIC);
+	dma_mem = kzalloc_obj(*dma_mem, GFP_ATOMIC);
 	if (!dma_mem) {
 		err = -ENOMEM;
 		goto dma_mem_error;
@@ -287,26 +287,21 @@ dma_mem_error:
 	return err;
 }
 
-/* API for virtchnl "transaction" support ("xn" for short).
- *
- * We are reusing the completion lock to serialize the accesses to the
- * transaction state for simplicity, but it could be its own separate synchro
- * as well. For now, this API is only used from within a workqueue context;
- * raw_spin_lock() is enough.
- */
+/* API for virtchnl "transaction" support ("xn" for short). */
+
 /**
  * idpf_vc_xn_lock - Request exclusive access to vc transaction
  * @xn: struct idpf_vc_xn* to access
  */
 #define idpf_vc_xn_lock(xn)			\
-	raw_spin_lock(&(xn)->completed.wait.lock)
+	spin_lock(&(xn)->lock)
 
 /**
  * idpf_vc_xn_unlock - Release exclusive access to vc transaction
  * @xn: struct idpf_vc_xn* to access
  */
 #define idpf_vc_xn_unlock(xn)		\
-	raw_spin_unlock(&(xn)->completed.wait.lock)
+	spin_unlock(&(xn)->lock)
 
 /**
  * idpf_vc_xn_release_bufs - Release reference to reply buffer(s) and
@@ -338,6 +333,7 @@ static void idpf_vc_xn_init(struct idpf_vc_xn_manager *vcxn_mngr)
 		xn->state = IDPF_VC_XN_IDLE;
 		xn->idx = i;
 		idpf_vc_xn_release_bufs(xn);
+		spin_lock_init(&xn->lock);
 		init_completion(&xn->completed);
 	}
 
@@ -406,7 +402,9 @@ static void idpf_vc_xn_push_free(struct idpf_vc_xn_manager *vcxn_mngr,
 				 struct idpf_vc_xn *xn)
 {
 	idpf_vc_xn_release_bufs(xn);
+	spin_lock_bh(&vcxn_mngr->xn_bm_lock);
 	set_bit(xn->idx, vcxn_mngr->free_xn_bm);
+	spin_unlock_bh(&vcxn_mngr->xn_bm_lock);
 }
 
 /**
@@ -617,6 +615,10 @@ idpf_vc_xn_forward_reply(struct idpf_adapter *adapter,
 		err = -ENXIO;
 		goto out_unlock;
 	case IDPF_VC_XN_ASYNC:
+		/* Set reply_sz from the actual payload so that async_handler
+		 * can evaluate the response.
+		 */
+		xn->reply_sz = ctlq_msg->data_len;
 		err = idpf_vc_xn_forward_async(adapter, xn, ctlq_msg);
 		idpf_vc_xn_unlock(xn);
 		return err;
@@ -740,7 +742,7 @@ struct idpf_queue_set *idpf_alloc_queue_set(struct idpf_adapter *adapter,
 {
 	struct idpf_queue_set *qp;
 
-	qp = kzalloc(struct_size(qp, qs, num), GFP_KERNEL);
+	qp = kzalloc_flex(*qp, qs, num);
 	if (!qp)
 		return NULL;
 
@@ -1059,7 +1061,7 @@ static int idpf_send_get_lan_memory_regions(struct idpf_adapter *adapter)
 		return -EINVAL;
 
 	hw = &adapter->hw;
-	hw->lan_regs = kcalloc(num_regions, sizeof(*hw->lan_regs), GFP_KERNEL);
+	hw->lan_regs = kzalloc_objs(*hw->lan_regs, num_regions);
 	if (!hw->lan_regs)
 		return -ENOMEM;
 
@@ -1091,8 +1093,7 @@ static int idpf_calc_remaining_mmio_regs(struct idpf_adapter *adapter)
 	struct idpf_hw *hw = &adapter->hw;
 
 	hw->num_lan_regs = IDPF_MMIO_MAP_FALLBACK_MAX_REMAINING;
-	hw->lan_regs = kcalloc(hw->num_lan_regs, sizeof(*hw->lan_regs),
-			       GFP_KERNEL);
+	hw->lan_regs = kzalloc_objs(*hw->lan_regs, hw->num_lan_regs);
 	if (!hw->lan_regs)
 		return -ENOMEM;
 
@@ -1291,8 +1292,7 @@ idpf_vport_init_queue_reg_chunks(struct idpf_vport_config *vport_config,
 
 	kfree(q_info->queue_chunks);
 
-	q_info->queue_chunks = kcalloc(num_chunks, sizeof(*q_info->queue_chunks),
-				       GFP_KERNEL);
+	q_info->queue_chunks = kzalloc_objs(*q_info->queue_chunks, num_chunks);
 	if (!q_info->queue_chunks) {
 		q_info->num_chunks = 0;
 		return -ENOMEM;
@@ -1845,7 +1845,7 @@ static int idpf_send_config_tx_queue_set_msg(const struct idpf_queue_set *qs)
 		.chunk_sz	= sizeof(*qi),
 	};
 
-	qi = kcalloc(qs->num, sizeof(*qi), GFP_KERNEL);
+	qi = kzalloc_objs(*qi, qs->num);
 	if (!qi)
 		return -ENOMEM;
 
@@ -2034,7 +2034,7 @@ static int idpf_send_config_rx_queue_set_msg(const struct idpf_queue_set *qs)
 		.chunk_sz	= sizeof(*qi),
 	};
 
-	qi = kcalloc(qs->num, sizeof(*qi), GFP_KERNEL);
+	qi = kzalloc_objs(*qi, qs->num);
 	if (!qi)
 		return -ENOMEM;
 
@@ -2161,7 +2161,7 @@ static int idpf_send_ena_dis_queue_set_msg(const struct idpf_queue_set *qs,
 		.num_chunks	= qs->num,
 	};
 
-	qc = kcalloc(qs->num, sizeof(*qc), GFP_KERNEL);
+	qc = kzalloc_objs(*qc, qs->num);
 	if (!qc)
 		return -ENOMEM;
 
@@ -2328,7 +2328,7 @@ idpf_send_map_unmap_queue_set_vector_msg(const struct idpf_queue_set *qs,
 	};
 	bool split;
 
-	vqv = kcalloc(qs->num, sizeof(*vqv), GFP_KERNEL);
+	vqv = kzalloc_objs(*vqv, qs->num);
 	if (!vqv)
 		return -ENOMEM;
 
@@ -3198,16 +3198,15 @@ static int idpf_send_get_rx_ptype_msg(struct idpf_adapter *adapter)
 	u16 next_ptype_id = 0;
 	ssize_t reply_sz;
 
-	singleq_pt_lkup = kcalloc(IDPF_RX_MAX_BASE_PTYPE,
-				  sizeof(*singleq_pt_lkup), GFP_KERNEL);
+	singleq_pt_lkup = kzalloc_objs(*singleq_pt_lkup, IDPF_RX_MAX_BASE_PTYPE);
 	if (!singleq_pt_lkup)
 		return -ENOMEM;
 
-	splitq_pt_lkup = kcalloc(max_ptype, sizeof(*splitq_pt_lkup), GFP_KERNEL);
+	splitq_pt_lkup = kzalloc_objs(*splitq_pt_lkup, max_ptype);
 	if (!splitq_pt_lkup)
 		return -ENOMEM;
 
-	get_ptype_info = kzalloc(sizeof(*get_ptype_info), GFP_KERNEL);
+	get_ptype_info = kzalloc_obj(*get_ptype_info);
 	if (!get_ptype_info)
 		return -ENOMEM;
 
@@ -3435,15 +3434,13 @@ static int idpf_vport_params_buf_alloc(struct idpf_adapter *adapter)
 {
 	u16 num_max_vports = idpf_get_max_vports(adapter);
 
-	adapter->vport_params_reqd = kcalloc(num_max_vports,
-					     sizeof(*adapter->vport_params_reqd),
-					     GFP_KERNEL);
+	adapter->vport_params_reqd = kzalloc_objs(*adapter->vport_params_reqd,
+						  num_max_vports);
 	if (!adapter->vport_params_reqd)
 		return -ENOMEM;
 
-	adapter->vport_params_recvd = kcalloc(num_max_vports,
-					      sizeof(*adapter->vport_params_recvd),
-					      GFP_KERNEL);
+	adapter->vport_params_recvd = kzalloc_objs(*adapter->vport_params_recvd,
+						   num_max_vports);
 	if (!adapter->vport_params_recvd)
 		goto err_mem;
 
@@ -3454,9 +3451,8 @@ static int idpf_vport_params_buf_alloc(struct idpf_adapter *adapter)
 	if (adapter->vport_config)
 		return 0;
 
-	adapter->vport_config = kcalloc(num_max_vports,
-					sizeof(*adapter->vport_config),
-					GFP_KERNEL);
+	adapter->vport_config = kzalloc_objs(*adapter->vport_config,
+					     num_max_vports);
 	if (!adapter->vport_config)
 		goto err_mem;
 
@@ -3488,7 +3484,7 @@ int idpf_vc_core_init(struct idpf_adapter *adapter)
 	int err = 0;
 
 	if (!adapter->vcxn_mngr) {
-		adapter->vcxn_mngr = kzalloc(sizeof(*adapter->vcxn_mngr), GFP_KERNEL);
+		adapter->vcxn_mngr = kzalloc_obj(*adapter->vcxn_mngr);
 		if (!adapter->vcxn_mngr) {
 			err = -ENOMEM;
 			goto init_failed;
@@ -3560,15 +3556,13 @@ restart:
 	pci_sriov_set_totalvfs(adapter->pdev, idpf_get_max_vfs(adapter));
 	num_max_vports = idpf_get_max_vports(adapter);
 	adapter->max_vports = num_max_vports;
-	adapter->vports = kcalloc(num_max_vports, sizeof(*adapter->vports),
-				  GFP_KERNEL);
+	adapter->vports = kzalloc_objs(*adapter->vports, num_max_vports);
 	if (!adapter->vports)
 		return -ENOMEM;
 
 	if (!adapter->netdevs) {
-		adapter->netdevs = kcalloc(num_max_vports,
-					   sizeof(struct net_device *),
-					   GFP_KERNEL);
+		adapter->netdevs = kzalloc_objs(struct net_device *,
+						num_max_vports);
 		if (!adapter->netdevs) {
 			err = -ENOMEM;
 			goto err_netdev_alloc;
@@ -3676,7 +3670,7 @@ void idpf_vc_core_deinit(struct idpf_adapter *adapter)
 
 	idpf_ptp_release(adapter);
 	idpf_deinit_task(adapter);
-	idpf_idc_deinit_core_aux_device(adapter->cdev_info);
+	idpf_idc_deinit_core_aux_device(adapter);
 	idpf_rel_rx_pt_lkup(adapter);
 	idpf_intr_rel(adapter);
 
@@ -4335,8 +4329,8 @@ int idpf_add_del_mac_filters(struct idpf_adapter *adapter,
 	}
 
 	/* Fill all the new filters into virtchannel message */
-	mac_addr = kcalloc(total_filters, sizeof(struct virtchnl2_mac_addr),
-			   GFP_ATOMIC);
+	mac_addr = kzalloc_objs(struct virtchnl2_mac_addr, total_filters,
+				GFP_ATOMIC);
 	if (!mac_addr) {
 		spin_unlock_bh(&vport_config->mac_filter_list_lock);
 

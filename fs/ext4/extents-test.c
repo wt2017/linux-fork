@@ -142,8 +142,10 @@ static struct file_system_type ext_fs_type = {
 
 static void extents_kunit_exit(struct kunit *test)
 {
-	struct ext4_sb_info *sbi = k_ctx.k_ei->vfs_inode.i_sb->s_fs_info;
+	struct super_block *sb = k_ctx.k_ei->vfs_inode.i_sb;
+	struct ext4_sb_info *sbi = sb->s_fs_info;
 
+	ext4_es_unregister_shrinker(sbi);
 	kfree(sbi);
 	kfree(k_ctx.k_ei);
 	kfree(k_ctx.k_data);
@@ -229,7 +231,7 @@ static int extents_kunit_init(struct kunit *test)
 	sb->s_blocksize = 4096;
 	sb->s_blocksize_bits = 12;
 
-	sbi = kzalloc(sizeof(struct ext4_sb_info), GFP_KERNEL);
+	sbi = kzalloc_obj(struct ext4_sb_info);
 	if (sbi == NULL)
 		return -ENOMEM;
 
@@ -240,7 +242,7 @@ static int extents_kunit_init(struct kunit *test)
 		sbi->s_extent_max_zeroout_kb = 32;
 
 	/* setup the mock inode */
-	k_ctx.k_ei = kzalloc(sizeof(struct ext4_inode_info), GFP_KERNEL);
+	k_ctx.k_ei = kzalloc_obj(struct ext4_inode_info);
 	if (k_ctx.k_ei == NULL)
 		return -ENOMEM;
 	ei = k_ctx.k_ei;
@@ -280,8 +282,8 @@ static int extents_kunit_init(struct kunit *test)
 	eh->eh_depth = 0;
 	eh->eh_entries = cpu_to_le16(1);
 	eh->eh_magic = EXT4_EXT_MAGIC;
-	eh->eh_max =
-		cpu_to_le16(ext4_ext_space_root_idx(&k_ctx.k_ei->vfs_inode, 0));
+	eh->eh_max = cpu_to_le16(ext4_ext_space_root_idx_test(
+					&k_ctx.k_ei->vfs_inode, 0));
 	eh->eh_generation = 0;
 
 	/*
@@ -384,8 +386,8 @@ static void test_split_convert(struct kunit *test)
 
 	switch (param->type) {
 	case TEST_SPLIT_CONVERT:
-		path = ext4_split_convert_extents(NULL, inode, &map, path,
-						  param->split_flags, NULL);
+		path = ext4_split_convert_extents_test(NULL, inode, &map,
+					path, param->split_flags, NULL);
 		break;
 	case TEST_CREATE_BLOCKS:
 		ext4_map_create_blocks_helper(test, inode, &map, param->split_flags);

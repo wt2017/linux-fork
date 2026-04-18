@@ -197,6 +197,31 @@ static int ocfs2_validate_gd_self(struct super_block *sb,
 			 8 * le16_to_cpu(gd->bg_size));
 	}
 
+	/*
+	 * For discontiguous block groups, validate the on-disk extent list
+	 * against the maximum number of extent records that can physically
+	 * fit in a single block.
+	 */
+	if (ocfs2_gd_is_discontig(gd)) {
+		u16 max_recs = ocfs2_extent_recs_per_gd(sb);
+		u16 l_count = le16_to_cpu(gd->bg_list.l_count);
+		u16 l_next_free_rec = le16_to_cpu(gd->bg_list.l_next_free_rec);
+
+		if (l_count != max_recs) {
+			do_error("Group descriptor #%llu bad discontig l_count %u expected %u\n",
+				 (unsigned long long)bh->b_blocknr,
+				 l_count,
+				 max_recs);
+		}
+
+		if (l_next_free_rec > l_count) {
+			do_error("Group descriptor #%llu bad discontig l_next_free_rec %u max %u\n",
+				 (unsigned long long)bh->b_blocknr,
+				 l_next_free_rec,
+				 l_count);
+		}
+	}
+
 	return 0;
 }
 
@@ -1034,7 +1059,7 @@ int ocfs2_reserve_new_metadata_blocks(struct ocfs2_super *osb,
 	int status;
 	int slot = ocfs2_get_meta_steal_slot(osb);
 
-	*ac = kzalloc(sizeof(struct ocfs2_alloc_context), GFP_KERNEL);
+	*ac = kzalloc_obj(struct ocfs2_alloc_context);
 	if (!(*ac)) {
 		status = -ENOMEM;
 		mlog_errno(status);
@@ -1105,7 +1130,7 @@ int ocfs2_reserve_new_inode(struct ocfs2_super *osb,
 	int slot = ocfs2_get_inode_steal_slot(osb);
 	u64 alloc_group;
 
-	*ac = kzalloc(sizeof(struct ocfs2_alloc_context), GFP_KERNEL);
+	*ac = kzalloc_obj(struct ocfs2_alloc_context);
 	if (!(*ac)) {
 		status = -ENOMEM;
 		mlog_errno(status);
@@ -1221,7 +1246,7 @@ static int ocfs2_reserve_clusters_with_limit(struct ocfs2_super *osb,
 	int status, ret = 0;
 	int retried = 0;
 
-	*ac = kzalloc(sizeof(struct ocfs2_alloc_context), GFP_KERNEL);
+	*ac = kzalloc_obj(struct ocfs2_alloc_context);
 	if (!(*ac)) {
 		status = -ENOMEM;
 		mlog_errno(status);
@@ -2245,7 +2270,7 @@ int ocfs2_find_new_inode_loc(struct inode *dir,
 	BUG_ON(ac->ac_bits_wanted != 1);
 	BUG_ON(ac->ac_which != OCFS2_AC_USE_INODE);
 
-	res = kzalloc(sizeof(*res), GFP_NOFS);
+	res = kzalloc_obj(*res, GFP_NOFS);
 	if (res == NULL) {
 		ret = -ENOMEM;
 		mlog_errno(ret);

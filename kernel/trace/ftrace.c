@@ -702,7 +702,7 @@ static int ftrace_profile_init_cpu(int cpu)
 	 */
 	size = FTRACE_PROFILE_HASH_SIZE;
 
-	stat->hash = kcalloc(size, sizeof(struct hlist_head), GFP_KERNEL);
+	stat->hash = kzalloc_objs(struct hlist_head, size);
 
 	if (!stat->hash)
 		return -ENOMEM;
@@ -1215,7 +1215,7 @@ add_ftrace_hash_entry_direct(struct ftrace_hash *hash, unsigned long ip, unsigne
 {
 	struct ftrace_func_entry *entry;
 
-	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
+	entry = kmalloc_obj(*entry);
 	if (!entry)
 		return NULL;
 
@@ -1335,12 +1335,12 @@ struct ftrace_hash *alloc_ftrace_hash(int size_bits)
 	struct ftrace_hash *hash;
 	int size;
 
-	hash = kzalloc(sizeof(*hash), GFP_KERNEL);
+	hash = kzalloc_obj(*hash);
 	if (!hash)
 		return NULL;
 
 	size = 1 << size_bits;
-	hash->buckets = kcalloc(size, sizeof(*hash->buckets), GFP_KERNEL);
+	hash->buckets = kzalloc_objs(*hash->buckets, size);
 
 	if (!hash->buckets) {
 		kfree(hash);
@@ -1360,7 +1360,7 @@ static int ftrace_add_mod(struct trace_array *tr,
 	struct ftrace_mod_load *ftrace_mod;
 	struct list_head *mod_head = enable ? &tr->mod_trace : &tr->mod_notrace;
 
-	ftrace_mod = kzalloc(sizeof(*ftrace_mod), GFP_KERNEL);
+	ftrace_mod = kzalloc_obj(*ftrace_mod);
 	if (!ftrace_mod)
 		return -ENOMEM;
 
@@ -3911,7 +3911,7 @@ ftrace_allocate_pages(unsigned long num_to_init, unsigned long *num_pages)
 	if (!num_to_init)
 		return NULL;
 
-	start_pg = pg = kzalloc(sizeof(*pg), GFP_KERNEL);
+	start_pg = pg = kzalloc_obj(*pg);
 	if (!pg)
 		return NULL;
 
@@ -3929,7 +3929,7 @@ ftrace_allocate_pages(unsigned long num_to_init, unsigned long *num_pages)
 		if (!num_to_init)
 			break;
 
-		pg->next = kzalloc(sizeof(*pg), GFP_KERNEL);
+		pg->next = kzalloc_obj(*pg);
 		if (!pg->next)
 			goto free_pages;
 
@@ -4686,7 +4686,7 @@ ftrace_regex_open(struct ftrace_ops *ops, int flag,
 	if (tracing_check_open_get_tr(tr))
 		return -ENODEV;
 
-	iter = kzalloc(sizeof(*iter), GFP_KERNEL);
+	iter = kzalloc_obj(*iter);
 	if (!iter)
 		goto out;
 
@@ -5334,7 +5334,7 @@ int ftrace_func_mapper_add_ip(struct ftrace_func_mapper *mapper,
 	if (entry)
 		return -EBUSY;
 
-	map = kmalloc(sizeof(*map), GFP_KERNEL);
+	map = kmalloc_obj(*map);
 	if (!map)
 		return -ENOMEM;
 
@@ -5474,7 +5474,7 @@ register_ftrace_function_probe(char *glob, struct trace_array *tr,
 		}
 	}
 	if (!probe) {
-		probe = kzalloc(sizeof(*probe), GFP_KERNEL);
+		probe = kzalloc_obj(*probe);
 		if (!probe) {
 			mutex_unlock(&ftrace_lock);
 			return -ENOMEM;
@@ -6404,6 +6404,7 @@ int update_ftrace_direct_add(struct ftrace_ops *ops, struct ftrace_hash *hash)
 			new_filter_hash = old_filter_hash;
 		}
 	} else {
+		guard(mutex)(&ftrace_lock);
 		err = ftrace_update_ops(ops, new_filter_hash, EMPTY_HASH);
 		/*
 		 * new_filter_hash is dup-ed, so we need to release it anyway,
@@ -6530,6 +6531,7 @@ int update_ftrace_direct_del(struct ftrace_ops *ops, struct ftrace_hash *hash)
 			ops->func_hash->filter_hash = NULL;
 		}
 	} else {
+		guard(mutex)(&ftrace_lock);
 		err = ftrace_update_ops(ops, new_filter_hash, EMPTY_HASH);
 		/*
 		 * new_filter_hash is dup-ed, so we need to release it anyway,
@@ -6604,9 +6606,9 @@ int update_ftrace_direct_mod(struct ftrace_ops *ops, struct ftrace_hash *hash, b
 	if (!orig_hash)
 		goto unlock;
 
-	/* Enable the tmp_ops to have the same functions as the direct ops */
+	/* Enable the tmp_ops to have the same functions as the hash object. */
 	ftrace_ops_init(&tmp_ops);
-	tmp_ops.func_hash = ops->func_hash;
+	tmp_ops.func_hash->filter_hash = hash;
 
 	err = register_ftrace_function_nolock(&tmp_ops);
 	if (err)
@@ -6839,7 +6841,8 @@ bool ftrace_filter_param __initdata;
 static int __init set_ftrace_notrace(char *str)
 {
 	ftrace_filter_param = true;
-	strscpy(ftrace_notrace_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_notrace_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_notrace=", set_ftrace_notrace);
@@ -6847,7 +6850,8 @@ __setup("ftrace_notrace=", set_ftrace_notrace);
 static int __init set_ftrace_filter(char *str)
 {
 	ftrace_filter_param = true;
-	strscpy(ftrace_filter_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_filter_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_filter=", set_ftrace_filter);
@@ -6859,14 +6863,16 @@ static int ftrace_graph_set_hash(struct ftrace_hash *hash, char *buffer);
 
 static int __init set_graph_function(char *str)
 {
-	strscpy(ftrace_graph_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_graph_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_graph_filter=", set_graph_function);
 
 static int __init set_graph_notrace_function(char *str)
 {
-	strscpy(ftrace_graph_notrace_buf, str, FTRACE_FILTER_SIZE);
+	trace_append_boot_param(ftrace_graph_notrace_buf, str, ',',
+				FTRACE_FILTER_SIZE);
 	return 1;
 }
 __setup("ftrace_graph_notrace=", set_graph_notrace_function);
@@ -7223,7 +7229,7 @@ ftrace_graph_open(struct inode *inode, struct file *file)
 	if (unlikely(ftrace_disabled))
 		return -ENODEV;
 
-	fgd = kmalloc(sizeof(*fgd), GFP_KERNEL);
+	fgd = kmalloc_obj(*fgd);
 	if (fgd == NULL)
 		return -ENOMEM;
 
@@ -7251,7 +7257,7 @@ ftrace_graph_notrace_open(struct inode *inode, struct file *file)
 	if (unlikely(ftrace_disabled))
 		return -ENODEV;
 
-	fgd = kmalloc(sizeof(*fgd), GFP_KERNEL);
+	fgd = kmalloc_obj(*fgd);
 	if (fgd == NULL)
 		return -ENOMEM;
 
@@ -8041,7 +8047,7 @@ static void save_ftrace_mod_rec(struct ftrace_mod_map *mod_map,
 	if (!ret)
 		return;
 
-	mod_func = kmalloc(sizeof(*mod_func), GFP_KERNEL);
+	mod_func = kmalloc_obj(*mod_func);
 	if (!mod_func)
 		return;
 
@@ -8068,7 +8074,7 @@ allocate_ftrace_mod_map(struct module *mod,
 	if (ftrace_disabled)
 		return NULL;
 
-	mod_map = kmalloc(sizeof(*mod_map), GFP_KERNEL);
+	mod_map = kmalloc_obj(*mod_map);
 	if (!mod_map)
 		return NULL;
 
@@ -8241,7 +8247,7 @@ static void add_to_clear_hash_list(struct list_head *clear_list,
 {
 	struct ftrace_init_func *func;
 
-	func = kmalloc(sizeof(*func), GFP_KERNEL);
+	func = kmalloc_obj(*func);
 	if (!func) {
 		MEM_FAIL(1, "alloc failure, ftrace filter could be stale\n");
 		return;
@@ -8611,6 +8617,7 @@ ftrace_pid_follow_sched_process_fork(void *data,
 	struct trace_pid_list *pid_list;
 	struct trace_array *tr = data;
 
+	guard(preempt)();
 	pid_list = rcu_dereference_sched(tr->function_pids);
 	trace_filter_add_remove_task(pid_list, self, task);
 
@@ -8624,6 +8631,7 @@ ftrace_pid_follow_sched_process_exit(void *data, struct task_struct *task)
 	struct trace_pid_list *pid_list;
 	struct trace_array *tr = data;
 
+	guard(preempt)();
 	pid_list = rcu_dereference_sched(tr->function_pids);
 	trace_filter_add_remove_task(pid_list, NULL, task);
 
@@ -9263,6 +9271,15 @@ static int kallsyms_callback(void *data, const char *name, unsigned long addr)
  * @addrs array, which needs to be big enough to store at least @cnt
  * addresses.
  *
+ * For a single symbol (cnt == 1), uses kallsyms_lookup_name() which
+ * performs an O(log N) binary search via the sorted kallsyms index.
+ * This avoids the full O(N) linear scan over all kernel symbols that
+ * the multi-symbol path requires.
+ *
+ * For multiple symbols, uses a single-pass linear scan via
+ * kallsyms_on_each_symbol() with binary search into the sorted input
+ * array.
+ *
  * Returns: 0 if all provided symbols are found, -ESRCH otherwise.
  */
 int ftrace_lookup_symbols(const char **sorted_syms, size_t cnt, unsigned long *addrs)
@@ -9270,6 +9287,19 @@ int ftrace_lookup_symbols(const char **sorted_syms, size_t cnt, unsigned long *a
 	struct kallsyms_data args;
 	int found_all;
 
+	/* Fast path: single symbol uses O(log N) binary search */
+	if (cnt == 1) {
+		addrs[0] = kallsyms_lookup_name(sorted_syms[0]);
+		if (addrs[0] && ftrace_location(addrs[0]))
+			return 0;
+		/*
+		 * Binary lookup can fail for duplicate symbol names
+		 * where the first match is not ftrace-instrumented.
+		 * Retry with linear scan.
+		 */
+	}
+
+	/* Batch path: single-pass O(N) linear scan */
 	memset(addrs, 0, sizeof(*addrs) * cnt);
 	args.addrs = addrs;
 	args.syms = sorted_syms;

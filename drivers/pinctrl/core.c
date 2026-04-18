@@ -30,6 +30,7 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/pinctrl/devinfo.h>
 #include <linux/pinctrl/machine.h>
+#include <linux/pinctrl/pinconf.h>
 #include <linux/pinctrl/pinctrl.h>
 
 #include "core.h"
@@ -215,7 +216,7 @@ static int pinctrl_register_one_pin(struct pinctrl_dev *pctldev,
 		return -EINVAL;
 	}
 
-	pindesc = kzalloc(sizeof(*pindesc), GFP_KERNEL);
+	pindesc = kzalloc_obj(*pindesc);
 	if (!pindesc)
 		return -ENOMEM;
 
@@ -938,6 +939,36 @@ int pinctrl_gpio_set_config(struct gpio_chip *gc, unsigned int offset,
 }
 EXPORT_SYMBOL_GPL(pinctrl_gpio_set_config);
 
+/**
+ * pinctrl_gpio_get_config() - Get the config for a given GPIO pin
+ * @gc: GPIO chip structure from the GPIO subsystem
+ * @offset: hardware offset of the GPIO relative to the controller
+ * @config: the configuration to query.  On success it holds the result
+ * Return: 0 on success, negative errno otherwise
+ */
+int pinctrl_gpio_get_config(struct gpio_chip *gc, unsigned int offset, unsigned long *config)
+{
+	struct pinctrl_gpio_range *range;
+	struct pinctrl_dev *pctldev;
+	int ret, pin;
+
+	ret = pinctrl_get_device_gpio_range(gc, offset, &pctldev, &range);
+	if (ret)
+		return ret;
+
+	mutex_lock(&pctldev->mutex);
+	pin = gpio_to_pin(range, gc, offset);
+	ret = pin_config_get_for_pin(pctldev, pin, config);
+	mutex_unlock(&pctldev->mutex);
+
+	if (ret)
+		return ret;
+
+	*config = pinconf_to_config_argument(*config);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(pinctrl_gpio_get_config);
+
 static struct pinctrl_state *find_state(struct pinctrl *p,
 					const char *name)
 {
@@ -955,7 +986,7 @@ static struct pinctrl_state *create_state(struct pinctrl *p,
 {
 	struct pinctrl_state *state;
 
-	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	state = kzalloc_obj(*state);
 	if (!state)
 		return ERR_PTR(-ENOMEM);
 
@@ -983,7 +1014,7 @@ static int add_setting(struct pinctrl *p, struct pinctrl_dev *pctldev,
 	if (map->type == PIN_MAP_TYPE_DUMMY_STATE)
 		return 0;
 
-	setting = kzalloc(sizeof(*setting), GFP_KERNEL);
+	setting = kzalloc_obj(*setting);
 	if (!setting)
 		return -ENOMEM;
 
@@ -1063,7 +1094,7 @@ static struct pinctrl *create_pinctrl(struct device *dev,
 	 * mapping, this is what consumers will get when requesting
 	 * a pin control handle with pinctrl_get()
 	 */
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = kzalloc_obj(*p);
 	if (!p)
 		return ERR_PTR(-ENOMEM);
 	p->dev = dev;
@@ -1483,7 +1514,7 @@ int pinctrl_register_mappings(const struct pinctrl_map *maps,
 		}
 	}
 
-	maps_node = kzalloc(sizeof(*maps_node), GFP_KERNEL);
+	maps_node = kzalloc_obj(*maps_node);
 	if (!maps_node)
 		return -ENOMEM;
 
@@ -2076,7 +2107,7 @@ pinctrl_init_controller(const struct pinctrl_desc *pctldesc, struct device *dev,
 	if (!pctldesc->name)
 		return ERR_PTR(-EINVAL);
 
-	pctldev = kzalloc(sizeof(*pctldev), GFP_KERNEL);
+	pctldev = kzalloc_obj(*pctldev);
 	if (!pctldev)
 		return ERR_PTR(-ENOMEM);
 

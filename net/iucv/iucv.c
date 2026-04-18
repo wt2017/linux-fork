@@ -90,7 +90,7 @@ struct device *iucv_alloc_device(const struct attribute_group **attrs,
 	char buf[20];
 	int rc;
 
-	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	dev = kzalloc_obj(*dev);
 	if (!dev)
 		goto out_error;
 	va_start(vargs, fmt);
@@ -378,7 +378,7 @@ static int iucv_query_maxconn(void)
 	void *param;
 	int ccode;
 
-	param = kzalloc(sizeof(union iucv_param), GFP_KERNEL | GFP_DMA);
+	param = kzalloc_obj(union iucv_param, GFP_KERNEL | GFP_DMA);
 	if (!param)
 		return -ENOMEM;
 	ccode = __iucv_query_maxconn(param, &max_pathid);
@@ -687,6 +687,8 @@ __free_cpumask:
  *
  * @pathid: path identification number.
  * @userdata: 16-bytes of user data.
+ *
+ * Returns: 0 on success, the result of the CP b2f0 IUCV call.
  */
 static int iucv_sever_pathid(u16 pathid, u8 *userdata)
 {
@@ -1092,6 +1094,8 @@ EXPORT_SYMBOL(iucv_message_purge);
  *
  * Internal function used by iucv_message_receive and __iucv_message_receive
  * to receive RMDATA data stored in struct iucv_message.
+ *
+ * Returns: 0
  */
 static int iucv_message_receive_iprmdata(struct iucv_path *path,
 					 struct iucv_message *msg,
@@ -1808,7 +1812,7 @@ static void iucv_external_interrupt(struct ext_code ext_code,
 		return;
 	}
 	BUG_ON(p->iptype  < 0x01 || p->iptype > 0x09);
-	work = kmalloc(sizeof(struct iucv_irq_list), GFP_ATOMIC);
+	work = kmalloc_obj(struct iucv_irq_list, GFP_ATOMIC);
 	if (!work) {
 		pr_warn("iucv_external_interrupt: out of memory\n");
 		return;
@@ -1852,6 +1856,8 @@ static enum cpuhp_state iucv_online;
 
 /**
  * iucv_init - Allocates and initializes various data structures.
+ *
+ * Returns: 0 on success, return code on failure.
  */
 static int __init iucv_init(void)
 {

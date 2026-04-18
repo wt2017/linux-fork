@@ -646,7 +646,7 @@ typec_register_altmode(struct device *parent,
 	struct altmode *alt;
 	int ret;
 
-	alt = kzalloc(sizeof(*alt), GFP_KERNEL);
+	alt = kzalloc_obj(*alt);
 	if (!alt) {
 		altmode_id_remove(parent, id);
 		return ERR_PTR(-ENOMEM);
@@ -685,10 +685,6 @@ typec_register_altmode(struct device *parent,
 		typec_altmode_set_partner(alt);
 
 	alt->adev.dev.bus = &typec_bus;
-
-	/* Plug alt modes need a class to generate udev events. */
-	if (is_typec_plug(parent))
-		alt->adev.dev.class = &typec_class;
 
 	ret = device_register(&alt->adev.dev);
 	if (ret) {
@@ -1113,7 +1109,7 @@ struct typec_partner *typec_register_partner(struct typec_port *port,
 	struct typec_partner *partner;
 	int ret;
 
-	partner = kzalloc(sizeof(*partner), GFP_KERNEL);
+	partner = kzalloc_obj(*partner);
 	if (!partner)
 		return ERR_PTR(-ENOMEM);
 
@@ -1313,7 +1309,7 @@ struct typec_plug *typec_register_plug(struct typec_cable *cable,
 	char name[8];
 	int ret;
 
-	plug = kzalloc(sizeof(*plug), GFP_KERNEL);
+	plug = kzalloc_obj(*plug);
 	if (!plug)
 		return ERR_PTR(-ENOMEM);
 
@@ -1466,7 +1462,7 @@ struct typec_cable *typec_register_cable(struct typec_port *port,
 	struct typec_cable *cable;
 	int ret;
 
-	cable = kzalloc(sizeof(*cable), GFP_KERNEL);
+	cable = kzalloc_obj(*cable);
 	if (!cable)
 		return ERR_PTR(-ENOMEM);
 
@@ -2703,7 +2699,7 @@ struct typec_port *typec_register_port(struct device *parent,
 	int ret;
 	int id;
 
-	port = kzalloc(sizeof(*port), GFP_KERNEL);
+	port = kzalloc_obj(*port);
 	if (!port)
 		return ERR_PTR(-ENOMEM);
 

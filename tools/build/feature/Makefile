@@ -13,7 +13,7 @@ FILES=                                          \
          test-gtk2-infobar.bin                  \
          test-hello.bin                         \
          test-libbfd.bin                        \
-         test-libbfd-buildid.bin		\
+	 test-libbfd-threadsafe.bin      	\
          test-disassembler-four-args.bin        \
          test-disassembler-init-styled.bin	\
          test-reallocarray.bin			\
@@ -50,6 +50,7 @@ FILES=                                          \
          test-timerfd.bin                       \
          test-libbabeltrace.bin                 \
          test-libcapstone.bin			\
+         test-libcheck.bin			\
          test-compile-32.bin                    \
          test-compile-x32.bin                   \
          test-zlib.bin                          \
@@ -73,6 +74,7 @@ FILES=                                          \
          test-clang-bpf-co-re.bin		\
          test-file-handle.bin			\
          test-libpfm4.bin			\
+         test-rust.bin				\
          test-libopenssl.bin
 
 FILES := $(addprefix $(OUTPUT),$(FILES))
@@ -268,7 +270,7 @@ $(OUTPUT)test-libpython.bin:
 $(OUTPUT)test-libbfd.bin:
 	$(BUILD_BFD)
 
-$(OUTPUT)test-libbfd-buildid.bin:
+$(OUTPUT)test-libbfd-threadsafe.bin:
 	$(BUILD_BFD) || $(BUILD_BFD) -liberty || $(BUILD_BFD) -liberty -lz
 
 $(OUTPUT)test-disassembler-four-args.bin:
@@ -305,6 +307,9 @@ $(OUTPUT)test-libbabeltrace.bin:
 
 $(OUTPUT)test-libcapstone.bin:
 	$(BUILD) # -lcapstone provided by $(FEATURE_CHECK_LDFLAGS-libcapstone)
+
+$(OUTPUT)test-libcheck.bin:
+	$(BUILD) # -lcheck is provided by $(FEATURE_CHECK_LDFLAGS-libcheck)
 
 $(OUTPUT)test-compile-32.bin:
 	$(CC) -m32 -Wall -Werror -o $@ test-compile.c
@@ -388,6 +393,15 @@ $(OUTPUT)test-libopenssl.bin:
 $(OUTPUT)test-bpftool-skeletons.bin:
 	$(SYSTEM_BPFTOOL) version | grep '^features:.*skeletons' \
 		> $(@:.bin=.make.output) 2>&1
+
+# Testing Rust is special: we don't compile anything, it's enough to check the
+# compiler presence. Compiling a test code for this purposes is problematic,
+# because Rust will emit a dependency file without any external references,
+# meaning that if rustc will be removed the build process will still think it's
+# there.
+$(OUTPUT)test-rust.bin:
+	$(RUSTC) --version > /dev/null 2>&1
+
 ###############################
 
 clean:

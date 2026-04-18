@@ -472,6 +472,8 @@ static struct qm_typical_qos_table shaper_cbs_s[] = {
 
 static void qm_irqs_unregister(struct hisi_qm *qm);
 static int qm_reset_device(struct hisi_qm *qm);
+static void hisi_qm_stop_qp(struct hisi_qp *qp);
+
 int hisi_qm_q_num_set(const char *val, const struct kernel_param *kp,
 		      unsigned int device)
 {
@@ -2262,7 +2264,7 @@ static int qm_start_qp_nolock(struct hisi_qp *qp, unsigned long arg)
  * After this function, qp can receive request from user. Return 0 if
  * successful, negative error code if failed.
  */
-int hisi_qm_start_qp(struct hisi_qp *qp, unsigned long arg)
+static int hisi_qm_start_qp(struct hisi_qp *qp, unsigned long arg)
 {
 	struct hisi_qm *qm = qp->qm;
 	int ret;
@@ -2273,7 +2275,6 @@ int hisi_qm_start_qp(struct hisi_qp *qp, unsigned long arg)
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(hisi_qm_start_qp);
 
 /**
  * qp_stop_fail_cb() - call request cb.
@@ -2418,13 +2419,12 @@ static void qm_stop_qp_nolock(struct hisi_qp *qp)
  *
  * This function is reverse of hisi_qm_start_qp.
  */
-void hisi_qm_stop_qp(struct hisi_qp *qp)
+static void hisi_qm_stop_qp(struct hisi_qp *qp)
 {
 	down_write(&qp->qm->qps_lock);
 	qm_stop_qp_nolock(qp);
 	up_write(&qp->qm->qps_lock);
 }
-EXPORT_SYMBOL_GPL(hisi_qm_stop_qp);
 
 /**
  * hisi_qp_send() - Queue up a task in the hardware queue.
@@ -2722,7 +2722,7 @@ static int qm_hw_err_isolate(struct hisi_qm *qm)
 	if (qm->uacce->is_vf || isolate->is_isolate || !isolate->err_threshold)
 		return 0;
 
-	hw_err = kzalloc(sizeof(*hw_err), GFP_KERNEL);
+	hw_err = kzalloc_obj(*hw_err);
 	if (!hw_err)
 		return -ENOMEM;
 
@@ -3381,7 +3381,7 @@ static int __hisi_qm_start(struct hisi_qm *qm)
 int hisi_qm_start(struct hisi_qm *qm)
 {
 	struct device *dev = &qm->pdev->dev;
-	int ret = 0;
+	int ret;
 
 	down_write(&qm->qps_lock);
 
@@ -3747,7 +3747,7 @@ static int hisi_qm_sort_devices(int node, struct list_head *head,
 		if (dev_node < 0)
 			dev_node = 0;
 
-		res = kzalloc(sizeof(*res), GFP_KERNEL);
+		res = kzalloc_obj(*res);
 		if (!res)
 			return -ENOMEM;
 
@@ -3917,8 +3917,8 @@ back_func_qos:
 
 static u32 qm_get_shaper_vft_qos(struct hisi_qm *qm, u32 fun_index)
 {
-	u64 cir_u = 0, cir_b = 0, cir_s = 0;
 	u64 shaper_vft, ir_calc, ir;
+	u64 cir_u, cir_b, cir_s;
 	unsigned int val;
 	u32 error_rate;
 	int ret;
@@ -4278,8 +4278,8 @@ int hisi_qm_sriov_configure(struct pci_dev *pdev, int num_vfs)
 {
 	if (num_vfs == 0)
 		return hisi_qm_sriov_disable(pdev, false);
-	else
-		return hisi_qm_sriov_enable(pdev, num_vfs);
+
+	return hisi_qm_sriov_enable(pdev, num_vfs);
 }
 EXPORT_SYMBOL_GPL(hisi_qm_sriov_configure);
 
@@ -5767,11 +5767,11 @@ static int hisi_qp_alloc_memory(struct hisi_qm *qm)
 	size_t qp_dma_size;
 	int i, ret;
 
-	qm->qp_array = kcalloc(qm->qp_num, sizeof(struct hisi_qp), GFP_KERNEL);
+	qm->qp_array = kzalloc_objs(struct hisi_qp, qm->qp_num);
 	if (!qm->qp_array)
 		return -ENOMEM;
 
-	qm->poll_data = kcalloc(qm->qp_num, sizeof(struct hisi_qm_poll_data), GFP_KERNEL);
+	qm->poll_data = kzalloc_objs(struct hisi_qm_poll_data, qm->qp_num);
 	if (!qm->poll_data) {
 		kfree(qm->qp_array);
 		return -ENOMEM;
@@ -5836,7 +5836,7 @@ static int hisi_qm_memory_init(struct hisi_qm *qm)
 
 	if (test_bit(QM_SUPPORT_FUNC_QOS, &qm->caps)) {
 		total_func = pci_sriov_get_totalvfs(qm->pdev) + 1;
-		qm->factor = kcalloc(total_func, sizeof(struct qm_shaper_factor), GFP_KERNEL);
+		qm->factor = kzalloc_objs(struct qm_shaper_factor, total_func);
 		if (!qm->factor)
 			return -ENOMEM;
 

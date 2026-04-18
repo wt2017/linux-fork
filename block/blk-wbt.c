@@ -713,7 +713,7 @@ static int wbt_data_dir(const struct request *rq)
 
 static struct rq_wb *wbt_alloc(void)
 {
-	struct rq_wb *rwb = kzalloc(sizeof(*rwb), GFP_KERNEL);
+	struct rq_wb *rwb = kzalloc_obj(*rwb);
 
 	if (!rwb)
 		return NULL;
@@ -782,10 +782,11 @@ void wbt_init_enable_default(struct gendisk *disk)
 		return;
 
 	rwb = wbt_alloc();
-	if (WARN_ON_ONCE(!rwb))
+	if (!rwb)
 		return;
 
-	if (WARN_ON_ONCE(wbt_init(disk, rwb))) {
+	if (wbt_init(disk, rwb)) {
+		pr_warn("%s: failed to enable wbt\n", disk->disk_name);
 		wbt_free(rwb);
 		return;
 	}

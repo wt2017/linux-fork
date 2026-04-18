@@ -69,7 +69,7 @@ void hold_module_trace_bprintk_format(const char **start, const char **end)
 		}
 
 		fmt = NULL;
-		tb_fmt = kmalloc(sizeof(*tb_fmt), GFP_KERNEL);
+		tb_fmt = kmalloc_obj(*tb_fmt);
 		if (tb_fmt) {
 			fmt = kmalloc(strlen(*iter) + 1, GFP_KERNEL);
 			if (fmt) {
@@ -197,6 +197,7 @@ struct notifier_block module_trace_bprintk_format_nb = {
 	.notifier_call = module_trace_bprintk_format_notify,
 };
 
+__printf(2, 3)
 int __trace_bprintk(unsigned long ip, const char *fmt, ...)
 {
 	int ret;

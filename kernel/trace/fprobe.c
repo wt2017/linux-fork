@@ -450,8 +450,6 @@ static int fprobe_fgraph_entry(struct ftrace_graph_ent *trace, struct fgraph_ops
 				used += FPROBE_HEADER_SIZE_IN_LONG + size_words;
 		}
 	}
-	if (used < reserved_words)
-		memset(fgraph_data + used, 0, reserved_words - used);
 
 	/* If any exit_handler is set, data must be used. */
 	return used != 0;
@@ -749,7 +747,7 @@ static int fprobe_init(struct fprobe *fp, unsigned long *addrs, int num)
 		return -E2BIG;
 	fp->entry_data_size = size;
 
-	hlist_array = kzalloc(struct_size(hlist_array, array, num), GFP_KERNEL);
+	hlist_array = kzalloc_flex(*hlist_array, array, num);
 	if (!hlist_array)
 		return -ENOMEM;
 
@@ -805,7 +803,7 @@ int register_fprobe(struct fprobe *fp, const char *filter, const char *notfilter
 	if (!addrs)
 		return -ENOMEM;
 
-	mods = kcalloc(num, sizeof(*mods), GFP_KERNEL);
+	mods = kzalloc_objs(*mods, num);
 	if (!mods)
 		return -ENOMEM;
 

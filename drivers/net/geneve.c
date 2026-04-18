@@ -12,7 +12,6 @@
 #include <linux/module.h>
 #include <linux/etherdevice.h>
 #include <linux/hash.h>
-#include <net/ipv6_stubs.h>
 #include <net/dst_metadata.h>
 #include <net/gro_cells.h>
 #include <net/rtnetlink.h>
@@ -980,7 +979,7 @@ static struct geneve_sock *geneve_socket_create(struct net *net, __be16 port,
 	struct udp_tunnel_sock_cfg tunnel_cfg;
 	int h;
 
-	gs = kzalloc(sizeof(*gs), GFP_KERNEL);
+	gs = kzalloc_obj(*gs);
 	if (!gs)
 		return ERR_PTR(-ENOMEM);
 

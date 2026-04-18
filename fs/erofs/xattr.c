@@ -85,8 +85,15 @@ static int erofs_init_inode_xattrs(struct inode *inode)
 	}
 	vi->xattr_name_filter = le32_to_cpu(ih->h_name_filter);
 	vi->xattr_shared_count = ih->h_shared_count;
-	vi->xattr_shared_xattrs = kmalloc_array(vi->xattr_shared_count,
-						sizeof(uint), GFP_KERNEL);
+	if ((u32)vi->xattr_shared_count * sizeof(__le32) >
+	    vi->xattr_isize - sizeof(struct erofs_xattr_ibody_header)) {
+		erofs_err(sb, "invalid h_shared_count %u @ nid %llu",
+			  vi->xattr_shared_count, vi->nid);
+		erofs_put_metabuf(&buf);
+		ret = -EFSCORRUPTED;
+		goto out_unlock;
+	}
+	vi->xattr_shared_xattrs = kmalloc_objs(uint, vi->xattr_shared_count);
 	if (!vi->xattr_shared_xattrs) {
 		erofs_put_metabuf(&buf);
 		ret = -ENOMEM;
@@ -498,7 +505,7 @@ int erofs_xattr_prefixes_init(struct super_block *sb)
 	if (!sbi->xattr_prefix_count)
 		return 0;
 
-	pfs = kcalloc(sbi->xattr_prefix_count, sizeof(*pfs), GFP_KERNEL);
+	pfs = kzalloc_objs(*pfs, sbi->xattr_prefix_count);
 	if (!pfs)
 		return -ENOMEM;
 

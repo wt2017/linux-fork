@@ -457,7 +457,7 @@ static int psp_sw_init(struct amdgpu_ip_block *ip_block)
 	struct psp_memory_training_context *mem_training_ctx = &psp->mem_train_ctx;
 	struct psp_runtime_scpm_entry scpm_entry;
 
-	psp->cmd = kzalloc(sizeof(struct psp_gfx_cmd_resp), GFP_KERNEL);
+	psp->cmd = kzalloc_obj(struct psp_gfx_cmd_resp);
 	if (!psp->cmd) {
 		dev_err(adev->dev, "Failed to allocate memory to command buffer!\n");
 		return -ENOMEM;
@@ -3096,6 +3096,13 @@ static int psp_load_non_psp_fw(struct psp_context *psp)
 			 */
 			continue;
 
+		/* IMU ucode is part of IFWI and MP0 15.0.8 would load it */
+		if (amdgpu_ip_version(adev, MP0_HWIP, 0) ==
+		    IP_VERSION(15, 0, 8) &&
+		    (ucode->ucode_id == AMDGPU_UCODE_ID_IMU_I ||
+		    ucode->ucode_id == AMDGPU_UCODE_ID_IMU_D))
+			continue;
+
 		psp_print_fw_hdr(psp, ucode);
 
 		ret = psp_execute_ip_fw_load(psp, ucode);
@@ -4384,7 +4391,7 @@ static int psp_read_spirom_debugfs_open(struct inode *inode, struct file *filp)
 		return -EBUSY;
 	}
 
-	bo_triplet = kzalloc(sizeof(struct spirom_bo), GFP_KERNEL);
+	bo_triplet = kzalloc_obj(struct spirom_bo);
 	if (!bo_triplet) {
 		mutex_unlock(&adev->psp.mutex);
 		return -ENOMEM;

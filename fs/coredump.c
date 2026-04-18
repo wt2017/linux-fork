@@ -63,6 +63,9 @@
 
 #include <trace/events/sched.h>
 
+#define CREATE_TRACE_POINTS
+#include <trace/events/coredump.h>
+
 static bool dump_vma_snapshot(struct coredump_params *cprm);
 static void free_vma_snapshot(struct coredump_params *cprm);
 
@@ -262,7 +265,7 @@ static bool coredump_parse(struct core_name *cn, struct coredump_params *cprm,
 	switch (cn->core_type) {
 	case COREDUMP_PIPE: {
 		int argvs = sizeof(core_pattern) / 2;
-		(*argv) = kmalloc_array(argvs, sizeof(**argv), GFP_KERNEL);
+		(*argv) = kmalloc_objs(**argv, argvs);
 		if (!(*argv))
 			return false;
 		(*argv)[(*argc)++] = 0;
@@ -1090,6 +1093,8 @@ static inline bool coredump_skip(const struct coredump_params *cprm,
 static void do_coredump(struct core_name *cn, struct coredump_params *cprm,
 			size_t **argv, int *argc, const struct linux_binfmt *binfmt)
 {
+	trace_coredump(cprm->siginfo->si_signo);
+
 	if (!coredump_parse(cn, cprm, argv, argc)) {
 		coredump_report_failure("format_corename failed, aborting core");
 		return;
@@ -1736,7 +1741,7 @@ static bool dump_vma_snapshot(struct coredump_params *cprm)
 	gate_vma = get_gate_vma(mm);
 	cprm->vma_count = mm->map_count + (gate_vma ? 1 : 0);
 
-	cprm->vma_meta = kvmalloc_array(cprm->vma_count, sizeof(*cprm->vma_meta), GFP_KERNEL);
+	cprm->vma_meta = kvmalloc_objs(*cprm->vma_meta, cprm->vma_count);
 	if (!cprm->vma_meta) {
 		mmap_write_unlock(mm);
 		return false;

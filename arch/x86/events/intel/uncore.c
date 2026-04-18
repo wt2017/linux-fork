@@ -67,6 +67,7 @@ int uncore_die_to_segment(int die)
 	return bus ? pci_domain_nr(bus) : -EINVAL;
 }
 
+/* Note: This API can only be used when NUMA information is available. */
 int uncore_device_to_die(struct pci_dev *dev)
 {
 	int node = pcibus_to_node(dev->bus);
@@ -107,7 +108,7 @@ lookup:
 
 	if (!alloc) {
 		raw_spin_unlock(&pci2phy_map_lock);
-		alloc = kmalloc(sizeof(struct pci2phy_map), GFP_KERNEL);
+		alloc = kmalloc_obj(struct pci2phy_map);
 		raw_spin_lock(&pci2phy_map_lock);
 
 		if (!alloc)
@@ -990,7 +991,7 @@ static int __init uncore_type_init(struct intel_uncore_type *type)
 	size_t size;
 	int i, j;
 
-	pmus = kcalloc(type->num_boxes, sizeof(*pmus), GFP_KERNEL);
+	pmus = kzalloc_objs(*pmus, type->num_boxes);
 	if (!pmus)
 		return -ENOMEM;
 
@@ -1016,8 +1017,7 @@ static int __init uncore_type_init(struct intel_uncore_type *type)
 		} *attr_group;
 		for (i = 0; type->event_descs[i].attr.attr.name; i++);
 
-		attr_group = kzalloc(struct_size(attr_group, attrs, i + 1),
-								GFP_KERNEL);
+		attr_group = kzalloc_flex(*attr_group, attrs, i + 1);
 		if (!attr_group)
 			goto err;
 

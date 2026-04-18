@@ -179,6 +179,7 @@ bool list_lru_add(struct list_lru *lru, struct list_head *item, int nid,
 	unlock_list_lru(l, false);
 	return false;
 }
+EXPORT_SYMBOL_GPL(list_lru_add);
 
 bool list_lru_add_obj(struct list_lru *lru, struct list_head *item)
 {
@@ -407,7 +408,7 @@ static struct list_lru_memcg *memcg_init_list_lru_one(struct list_lru *lru, gfp_
 	int nid;
 	struct list_lru_memcg *mlru;
 
-	mlru = kmalloc(struct_size(mlru, node, nr_node_ids), gfp);
+	mlru = kmalloc_flex(*mlru, node, nr_node_ids, gfp);
 	if (!mlru)
 		return NULL;
 
@@ -585,7 +586,7 @@ int __list_lru_init(struct list_lru *lru, bool memcg_aware, struct shrinker *shr
 		memcg_aware = false;
 #endif
 
-	lru->node = kcalloc(nr_node_ids, sizeof(*lru->node), GFP_KERNEL);
+	lru->node = kzalloc_objs(*lru->node, nr_node_ids);
 	if (!lru->node)
 		return -ENOMEM;
 

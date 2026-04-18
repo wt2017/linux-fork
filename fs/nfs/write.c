@@ -113,7 +113,7 @@ static void nfs_writehdr_free(struct nfs_pgio_header *hdr)
 
 static struct nfs_io_completion *nfs_io_completion_alloc(gfp_t gfp_flags)
 {
-	return kmalloc(sizeof(struct nfs_io_completion), gfp_flags);
+	return kmalloc_obj(struct nfs_io_completion, gfp_flags);
 }
 
 static void nfs_io_completion_init(struct nfs_io_completion *ioc,
@@ -872,8 +872,7 @@ static void nfs_folio_clear_commit(struct folio *folio)
 		long nr = folio_nr_pages(folio);
 
 		node_stat_mod_folio(folio, NR_WRITEBACK, -nr);
-		wb_stat_mod(&inode_to_bdi(folio->mapping->host)->wb,
-			    WB_WRITEBACK, -nr);
+		bdi_wb_stat_mod(folio->mapping->host, WB_WRITEBACK, -nr);
 	}
 }
 

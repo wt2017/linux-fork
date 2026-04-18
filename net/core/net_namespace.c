@@ -411,7 +411,7 @@ static __net_init int preinit_net(struct net *net, struct user_namespace *user_n
 	ref_tracker_dir_init(&net->refcnt_tracker, 128, "net_refcnt");
 	ref_tracker_dir_init(&net->notrefcnt_tracker, 128, "net_notrefcnt");
 
-	get_random_bytes(&net->hash_mix, sizeof(u32));
+	net->hash_mix = get_random_u32();
 	net->dev_base_seq = 1;
 	net->user_ns = user_ns;
 
@@ -492,7 +492,7 @@ static struct net *net_alloc(void)
 		goto out_free;
 
 #ifdef CONFIG_KEYS
-	net->key_domain = kzalloc(sizeof(struct key_tag), GFP_KERNEL);
+	net->key_domain = kzalloc_obj(struct key_tag);
 	if (!net->key_domain)
 		goto out_free_2;
 	refcount_set(&net->key_domain->usage, 1);
@@ -540,12 +540,10 @@ void net_passive_dec(struct net *net)
 	}
 }
 
-void net_drop_ns(void *p)
+void net_drop_ns(struct ns_common *ns)
 {
-	struct net *net = (struct net *)p;
-
-	if (net)
-		net_passive_dec(net);
+	if (ns)
+		net_passive_dec(to_net_ns(ns));
 }
 
 struct net *copy_net_ns(u64 flags,

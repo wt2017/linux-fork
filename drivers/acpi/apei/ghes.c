@@ -272,7 +272,7 @@ static struct ghes *ghes_new(struct acpi_hest_generic *generic)
 	unsigned int error_block_length;
 	int rc;
 
-	ghes = kzalloc(sizeof(*ghes), GFP_KERNEL);
+	ghes = kzalloc_obj(*ghes);
 	if (!ghes)
 		return ERR_PTR(-ENOMEM);
 
@@ -688,6 +688,24 @@ void ghes_unregister_vendor_record_notifier(struct notifier_block *nb)
 	blocking_notifier_chain_unregister(&vendor_record_notify_list, nb);
 }
 EXPORT_SYMBOL_GPL(ghes_unregister_vendor_record_notifier);
+
+static void ghes_vendor_record_notifier_destroy(void *nb)
+{
+	ghes_unregister_vendor_record_notifier(nb);
+}
+
+int devm_ghes_register_vendor_record_notifier(struct device *dev,
+					      struct notifier_block *nb)
+{
+	int ret;
+
+	ret = ghes_register_vendor_record_notifier(nb);
+	if (ret)
+		return ret;
+
+	return devm_add_action_or_reset(dev, ghes_vendor_record_notifier_destroy, nb);
+}
+EXPORT_SYMBOL_GPL(devm_ghes_register_vendor_record_notifier);
 
 static void ghes_vendor_record_work_func(struct work_struct *work)
 {
