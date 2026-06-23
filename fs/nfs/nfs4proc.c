@@ -3933,7 +3933,8 @@ static int _nfs4_server_capabilities(struct nfs_server *server, struct nfs_fh *f
 		server->caps &=
 			~(NFS_CAP_ACLS | NFS_CAP_HARDLINKS | NFS_CAP_SYMLINKS |
 			  NFS_CAP_SECURITY_LABEL | NFS_CAP_FS_LOCATIONS |
-			  NFS_CAP_OPEN_XOR | NFS_CAP_DELEGTIME);
+			  NFS_CAP_OPEN_XOR | NFS_CAP_DELEGTIME |
+			  NFS_CAP_CASE_INSENSITIVE | NFS_CAP_CASE_NONPRESERVING);
 		server->fattr_valid = NFS_ATTR_FATTR_V4;
 		if (res.attr_bitmask[0] & FATTR4_WORD0_ACL &&
 				res.acl_bitmask & ACL4_SUPPORT_ALLOW_ACL)
@@ -3944,8 +3945,9 @@ static int _nfs4_server_capabilities(struct nfs_server *server, struct nfs_fh *f
 			server->caps |= NFS_CAP_SYMLINKS;
 		if (res.case_insensitive)
 			server->caps |= NFS_CAP_CASE_INSENSITIVE;
-		if (res.case_preserving)
-			server->caps |= NFS_CAP_CASE_PRESERVING;
+		if ((res.attr_bitmask[0] & FATTR4_WORD0_CASE_PRESERVING) &&
+		    !res.case_preserving)
+			server->caps |= NFS_CAP_CASE_NONPRESERVING;
 #ifdef CONFIG_NFS_V4_SECURITY_LABEL
 		if (res.attr_bitmask[2] & FATTR4_WORD2_SECURITY_LABEL)
 			server->caps |= NFS_CAP_SECURITY_LABEL;
@@ -4469,6 +4471,13 @@ static int _nfs4_proc_getattr(struct nfs_server *server, struct nfs_fh *fhandle,
 		case -ENOTSUPP:
 		case -EOPNOTSUPP:
 			server->caps &= ~NFS_CAP_DIR_DELEG;
+			break;
+		case -NFS4ERR_INVAL:
+		case -NFS4ERR_IO:
+		case -NFS4ERR_DIRDELEG_UNAVAIL:
+		case -NFS4ERR_NOTDIR:
+			clear_bit(NFS_INO_REQ_DIR_DELEG, &(NFS_I(inode)->flags));
+			status = -EAGAIN;
 		}
 	}
 
@@ -4490,6 +4499,7 @@ int nfs4_proc_getattr(struct nfs_server *server, struct nfs_fh *fhandle,
 		default:
 			err = nfs4_handle_exception(server, err, &exception);
 			break;
+		case -EAGAIN:
 		case -ENOTSUPP:
 		case -EOPNOTSUPP:
 			exception.retry = true;
@@ -5052,6 +5062,7 @@ static int nfs4_proc_rename_done(struct rpc_task *task, struct inode *old_dir,
 					res->new_fattr->time_start,
 					NFS_INO_INVALID_NLINK |
 					    NFS_INO_INVALID_DATA);
+			nfs_update_delegated_mtime(new_dir);
 		} else
 			nfs4_update_changeattr(old_dir, &res->old_cinfo,
 					res->old_fattr->time_start,
@@ -9769,16 +9780,26 @@ static void nfs4_layoutreturn_done(struct rpc_task *task, void *calldata)
 	if (!nfs41_sequence_process(task, &lrp->res.seq_res))
 		return;
 
-	if (task->tk_rpc_status == -ETIMEDOUT) {
-		lrp->rpc_status = -EAGAIN;
-		lrp->res.lrs_present = 0;
-		return;
-	}
-	/*
-	 * Was there an RPC level error? Assume the call succeeded,
-	 * and that we need to release the layout
-	 */
-	if (task->tk_rpc_status != 0 && RPC_WAS_SENT(task)) {
+	if (task->tk_rpc_status < 0) {
+		switch (task->tk_rpc_status) {
+		case -EACCES:
+		case -EIO:
+		case -EKEYEXPIRED:
+		case -ERESTARTSYS:
+		case -EINTR:
+			lrp->rpc_status = 0;
+			break;
+		case -ENETDOWN:
+		case -ENETUNREACH:
+			if (task->tk_flags & RPC_TASK_NETUNREACH_FATAL)
+				lrp->rpc_status = 0;
+			else
+				lrp->rpc_status = -EAGAIN;
+			break;
+		default:
+			lrp->rpc_status = -EAGAIN;
+			break;
+		}
 		lrp->res.lrs_present = 0;
 		return;
 	}
@@ -10543,13 +10564,10 @@ static ssize_t nfs4_listxattr(struct dentry *dentry, char *list, size_t size)
 		left -= error;
 	}
 
-	error2 = security_inode_listsecurity(d_inode(dentry), list, left);
+	error2 = security_inode_listsecurity(d_inode(dentry), &list, &left);
 	if (error2 < 0)
 		return error2;
-	if (list) {
-		list += error2;
-		left -= error2;
-	}
+	error2 = size - error - left;
 
 	error3 = nfs4_listxattr_nfs4_user(d_inode(dentry), list, left);
 	if (error3 < 0)
@@ -10598,6 +10616,7 @@ static const struct inode_operations nfs4_dir_inode_operations = {
 	.getattr	= nfs_getattr,
 	.setattr	= nfs_setattr,
 	.listxattr	= nfs4_listxattr,
+	.fileattr_get	= nfs_fileattr_get,
 };
 
 static const struct inode_operations nfs4_file_inode_operations = {
@@ -10605,6 +10624,7 @@ static const struct inode_operations nfs4_file_inode_operations = {
 	.getattr	= nfs_getattr,
 	.setattr	= nfs_setattr,
 	.listxattr	= nfs4_listxattr,
+	.fileattr_get	= nfs_fileattr_get,
 };
 
 static struct nfs_server *nfs4_clone_server(struct nfs_server *source,
@@ -10617,6 +10637,9 @@ static struct nfs_server *nfs4_clone_server(struct nfs_server *source,
 	server = nfs_clone_server(source, fh, fattr, flavor);
 	if (IS_ERR(server))
 		return server;
+
+	nfs4_session_limit_rwsize(server);
+	nfs4_session_limit_xasize(server);
 
 	error = nfs4_delegation_hash_alloc(server);
 	if (error) {

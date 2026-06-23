@@ -43,6 +43,8 @@ EXPORT_TRACEPOINT_SYMBOL(spi_transfer_stop);
 
 #include "internals.h"
 
+static int __spi_setup(struct spi_device *spi, bool initial_setup);
+
 static DEFINE_IDR(spi_controller_idr);
 
 static void spidev_release(struct device *dev)
@@ -730,8 +732,6 @@ static int __spi_add_device(struct spi_device *spi, struct spi_device *parent)
 	}
 
 	if (ctlr->cs_gpiods) {
-		u8 cs;
-
 		for (idx = 0; idx < spi->num_chipselect; idx++) {
 			cs = spi_get_chipselect(spi, idx);
 			spi_set_csgpiod(spi, idx, ctlr->cs_gpiods[cs]);
@@ -743,7 +743,7 @@ static int __spi_add_device(struct spi_device *spi, struct spi_device *parent)
 	 * normally rely on the device being setup.  Devices
 	 * using SPI_CS_HIGH can't coexist well otherwise...
 	 */
-	status = spi_setup(spi);
+	status = __spi_setup(spi, true);
 	if (status < 0) {
 		dev_err(dev, "can't setup %s, status %d\n",
 				dev_name(&spi->dev), status);
@@ -3224,9 +3224,9 @@ extern struct class spi_target_class;	/* dummy */
  * This must be called from context that can sleep.
  *
  * The caller is responsible for assigning the bus number and initializing the
- * controller's methods before calling spi_register_controller(); and (after
- * errors adding the device) calling spi_controller_put() to prevent a memory
- * leak.
+ * controller's methods before calling spi_register_controller(); and calling
+ * spi_controller_put() to prevent a memory leak when done with the
+ * controller.
  *
  * Return: the SPI controller structure on success, else NULL.
  */
@@ -3309,8 +3309,6 @@ struct spi_controller *__devm_spi_alloc_controller(struct device *dev,
 	ret = devm_add_action_or_reset(dev, devm_spi_release_controller, ctlr);
 	if (ret)
 		return NULL;
-
-	ctlr->devm_allocated = true;
 
 	return ctlr;
 }
@@ -3550,7 +3548,8 @@ int spi_register_controller(struct spi_controller *ctlr)
 	/* Register devices from the device tree and ACPI */
 	of_register_spi_devices(ctlr);
 	acpi_register_spi_devices(ctlr);
-	return status;
+
+	return 0;
 
 del_ctrl:
 	device_del(&ctlr->dev);
@@ -3558,6 +3557,7 @@ free_bus_id:
 	mutex_lock(&board_lock);
 	idr_remove(&spi_controller_idr, ctlr->bus_num);
 	mutex_unlock(&board_lock);
+
 	return status;
 }
 EXPORT_SYMBOL_GPL(spi_register_controller);
@@ -3575,8 +3575,7 @@ static void devm_spi_unregister_controller(void *ctlr)
  * Context: can sleep
  *
  * Register a SPI device as with spi_register_controller() which will
- * automatically be unregistered (and freed unless it has been allocated using
- * devm_spi_alloc_host/target()).
+ * automatically be unregistered.
  *
  * Return: zero on success, else a negative error code.
  */
@@ -3589,19 +3588,7 @@ int devm_spi_register_controller(struct device *dev,
 	if (ret)
 		return ret;
 
-	/*
-	 * Prevent controller from being freed by spi_unregister_controller()
-	 * if devm_add_action_or_reset() fails for a non-devres allocated
-	 * controller.
-	 */
-	spi_controller_get(ctlr);
-
-	ret = devm_add_action_or_reset(dev, devm_spi_unregister_controller, ctlr);
-
-	if (ret == 0 || ctlr->devm_allocated)
-		spi_controller_put(ctlr);
-
-	return ret;
+	return devm_add_action_or_reset(dev, devm_spi_unregister_controller, ctlr);
 }
 EXPORT_SYMBOL_GPL(devm_spi_register_controller);
 
@@ -3620,9 +3607,6 @@ static int __unregister(struct device *dev, void *null)
  * only ones directly touching chip registers.
  *
  * This must be called from context that can sleep.
- *
- * Note that this function also drops a reference to the controller unless it
- * has been allocated using devm_spi_alloc_host/target().
  */
 void spi_unregister_controller(struct spi_controller *ctlr)
 {
@@ -3657,13 +3641,6 @@ void spi_unregister_controller(struct spi_controller *ctlr)
 
 	if (IS_ENABLED(CONFIG_SPI_DYNAMIC))
 		mutex_unlock(&ctlr->add_lock);
-
-	/*
-	 * Release the last reference on the controller if its driver
-	 * has not yet been converted to devm_spi_alloc_host/target().
-	 */
-	if (!ctlr->devm_allocated)
-		put_device(&ctlr->dev);
 }
 EXPORT_SYMBOL_GPL(spi_unregister_controller);
 
@@ -4049,27 +4026,7 @@ static int spi_set_cs_timing(struct spi_device *spi)
 	return status;
 }
 
-/**
- * spi_setup - setup SPI mode and clock rate
- * @spi: the device whose settings are being modified
- * Context: can sleep, and no requests are queued to the device
- *
- * SPI protocol drivers may need to update the transfer mode if the
- * device doesn't work with its default.  They may likewise need
- * to update clock rates or word sizes from initial values.  This function
- * changes those settings, and must be called from a context that can sleep.
- * Except for SPI_CS_HIGH, which takes effect immediately, the changes take
- * effect the next time the device is selected and data is transferred to
- * or from it.  When this function returns, the SPI device is deselected.
- *
- * Note that this call will fail if the protocol driver specifies an option
- * that the underlying controller or its driver does not support.  For
- * example, not all hardware supports wire transfers using nine bit words,
- * LSB-first wire encoding, or active-high chipselects.
- *
- * Return: zero on success, else a negative error code.
- */
-int spi_setup(struct spi_device *spi)
+static int __spi_setup(struct spi_device *spi, bool initial_setup)
 {
 	unsigned	bad_bits, ugly_bits;
 	int		status;
@@ -4154,7 +4111,7 @@ int spi_setup(struct spi_device *spi)
 	status = spi_set_cs_timing(spi);
 	if (status) {
 		mutex_unlock(&spi->controller->io_mutex);
-		return status;
+		goto err_cleanup;
 	}
 
 	if (spi->controller->auto_runtime_pm && spi->controller->set_cs) {
@@ -4163,7 +4120,7 @@ int spi_setup(struct spi_device *spi)
 			mutex_unlock(&spi->controller->io_mutex);
 			dev_err(&spi->controller->dev, "Failed to power device: %d\n",
 				status);
-			return status;
+			goto err_cleanup;
 		}
 
 		/*
@@ -4199,6 +4156,37 @@ int spi_setup(struct spi_device *spi)
 			status);
 
 	return status;
+
+err_cleanup:
+	if (initial_setup)
+		spi_cleanup(spi);
+
+	return status;
+}
+
+/**
+ * spi_setup - setup SPI mode and clock rate
+ * @spi: the device whose settings are being modified
+ * Context: can sleep, and no requests are queued to the device
+ *
+ * SPI protocol drivers may need to update the transfer mode if the
+ * device doesn't work with its default.  They may likewise need
+ * to update clock rates or word sizes from initial values.  This function
+ * changes those settings, and must be called from a context that can sleep.
+ * Except for SPI_CS_HIGH, which takes effect immediately, the changes take
+ * effect the next time the device is selected and data is transferred to
+ * or from it.  When this function returns, the SPI device is deselected.
+ *
+ * Note that this call will fail if the protocol driver specifies an option
+ * that the underlying controller or its driver does not support.  For
+ * example, not all hardware supports wire transfers using nine bit words,
+ * LSB-first wire encoding, or active-high chipselects.
+ *
+ * Return: zero on success, else a negative error code.
+ */
+int spi_setup(struct spi_device *spi)
+{
+	return __spi_setup(spi, false);
 }
 EXPORT_SYMBOL_GPL(spi_setup);
 
@@ -4990,11 +4978,6 @@ static int of_spi_notify(struct notifier_block *nb, unsigned long action,
 			return NOTIFY_OK;
 		}
 
-		/*
-		 * Clear the flag before adding the device so that fw_devlink
-		 * doesn't skip adding consumers to this device.
-		 */
-		fwnode_clear_flag(&rd->dn->fwnode, FWNODE_FLAG_NOT_DEVICE);
 		spi = of_register_spi_device(ctlr, rd->dn);
 		put_device(&ctlr->dev);
 

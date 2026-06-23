@@ -195,7 +195,6 @@ int ip_build_and_send_pkt(struct sk_buff *skb, const struct sock *sk,
 	/* Send it out. */
 	return ip_local_out(net, skb->sk, skb);
 }
-EXPORT_SYMBOL_GPL(ip_build_and_send_pkt);
 
 static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
@@ -1233,6 +1232,8 @@ alloc_new_skb:
 			if (err < 0)
 				goto error;
 			copy = err;
+			if (!(flags & MSG_NO_SHARED_FRAGS))
+				skb_shinfo(skb)->flags |= SKBFL_SHARED_FRAG;
 			wmem_alloc_delta += copy;
 		} else if (!zc) {
 			int i = skb_shinfo(skb)->nr_frags;

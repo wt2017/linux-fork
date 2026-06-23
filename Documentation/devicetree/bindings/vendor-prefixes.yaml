@@ -365,6 +365,8 @@ patternProperties:
     description: CORERIVER Semiconductor Co.,Ltd.
   "^corpro,.*":
     description: Chengdu Corpro Technology Co., Ltd.
+  "^corechips,.*":
+    description: Shenzhen Corechips Microelectronics Co., Ltd.
   "^cortina,.*":
     description: Cortina Systems, Inc.
   "^cosmic,.*":
@@ -435,6 +437,8 @@ patternProperties:
     description: Diodes, Inc.
   "^dioo,.*":
     description: Dioo Microcircuit Co., Ltd
+  "^displaytech,.*":
+    description: Displaytech Ltd.
   "^djn,.*":
     description: Shenzhen DJN Optronics Technology Co., Ltd
   "^dlc,.*":
@@ -487,6 +491,8 @@ patternProperties:
     description: Emtop Embedded Solutions
   "^eeti,.*":
     description: eGalax_eMPIA Technology Inc
+  "^efinix,.*":
+    description: Efinix, Inc.
   "^egnite,.*":
     description: egnite GmbH
   "^einfochips,.*":
@@ -547,6 +553,8 @@ patternProperties:
     description: ESTeem Wireless Modems
   "^eswin,.*":
     description: Beijing ESWIN Technology Group Co. Ltd.
+  "^etekmicro,.*":
+    description: Wuxi ETEK Micro-Electronics Co.,Ltd.
   "^ettus,.*":
     description: NI Ettus Research
   "^eukrea,.*":
@@ -652,6 +660,8 @@ patternProperties:
     description: Giantec Semiconductor, Inc.
   "^giantplus,.*":
     description: Giantplus Technology Co., Ltd.
+  "^gira,.*":
+    description: Gira Giersiepen GmbH & Co. KG
   "^glinet,.*":
     description: GL Intelligence, Inc.
   "^globalscale,.*":
@@ -751,6 +761,8 @@ patternProperties:
     description: Hycon Technology Corp.
   "^hydis,.*":
     description: Hydis Technologies
+  "^hynetek,.*":
+    description: Hynetek Semiconductor Co., Ltd.
   "^hynitron,.*":
     description: Shanghai Hynitron Microelectronics Co. Ltd.
   "^hynix,.*":
@@ -975,6 +987,8 @@ patternProperties:
     description: Shenzhen Luckfox Technology Co., Ltd.
   "^lunzn,.*":
     description: Shenzhen Lunzn Technology Co., Ltd.
+  "^luxshare,.*":
+    description: Luxshare-ICT Co., Ltd.
   "^luxul,.*":
     description: Lagrand | AV
   "^lwn,.*":
@@ -1777,6 +1791,8 @@ patternProperties:
     description: Variscite Ltd.
   "^vdl,.*":
     description: Van der Laan b.v.
+  "^verbatim,.*":
+    description: Verbatim Corporation
   "^verisilicon,.*":
     description: VeriSilicon Microelectronics (Shanghai) Co., Ltd.
   "^vertexcom,.*":

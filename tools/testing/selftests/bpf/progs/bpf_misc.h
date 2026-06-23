@@ -152,6 +152,7 @@
 #define __auxiliary		__test_tag("test_auxiliary")
 #define __auxiliary_unpriv	__test_tag("test_auxiliary_unpriv")
 #define __btf_path(path)	__test_tag("test_btf_path=" path)
+#define __btf_func_path(path)	__test_tag("test_btf_func_path=" path)
 #define __arch(arch)		__test_tag("test_arch=" arch)
 #define __arch_x86_64		__arch("X86_64")
 #define __arch_arm64		__arch("ARM64")
@@ -263,8 +264,8 @@
 
 #if __clang_major__ >= 18 && defined(ENABLE_ATOMICS_TESTS) &&		\
 	(defined(__TARGET_ARCH_arm64) || defined(__TARGET_ARCH_x86) ||	\
-	 (defined(__TARGET_ARCH_riscv) && __riscv_xlen == 64)) || \
-	  (defined(__TARGET_ARCH_powerpc))
+	(defined(__TARGET_ARCH_riscv) && __riscv_xlen == 64) || \
+	defined(__TARGET_ARCH_powerpc) || defined(__TARGET_ARCH_loongarch))
 #define CAN_USE_LOAD_ACQ_STORE_REL
 #endif
 

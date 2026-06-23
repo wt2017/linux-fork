@@ -240,7 +240,8 @@ static int ctnetlink_dump_helpinfo(struct sk_buff *skb,
 	if (nla_put_string(skb, CTA_HELP_NAME, helper->name))
 		goto nla_put_failure;
 
-	if (helper->to_nlattr)
+	if (rcu_access_pointer(helper->help) &&
+	    helper->to_nlattr)
 		helper->to_nlattr(skb, ct);
 
 	nla_nest_end(skb, nest_helper);
@@ -1935,6 +1936,7 @@ static int ctnetlink_change_helper(struct nf_conn *ct,
 	if (err < 0)
 		return err;
 
+	rcu_read_lock();
 	/* don't change helper of sibling connections */
 	if (ct->master) {
 		/* If we try to change the helper to the same thing twice,
@@ -1943,27 +1945,27 @@ static int ctnetlink_change_helper(struct nf_conn *ct,
 		 */
 		err = -EBUSY;
 		if (help) {
-			rcu_read_lock();
 			helper = rcu_dereference(help->helper);
 			if (helper && !strcmp(helper->name, helpname))
 				err = 0;
-			rcu_read_unlock();
 		}
-
+		rcu_read_unlock();
 		return err;
 	}
 
-	if (!strcmp(helpname, "")) {
-		if (help && help->helper) {
+	if (!strcmp(helpname, "") && help) {
+		helper = rcu_dereference(help->helper);
+		if (helper) {
 			/* we had a helper before ... */
 			nf_ct_remove_expectations(ct);
 			RCU_INIT_POINTER(help->helper, NULL);
+			if (refcount_dec_and_test(&helper->ct_refcnt))
+				kfree_rcu(helper, rcu);
 		}
-
+		rcu_read_unlock();
 		return 0;
 	}
 
-	rcu_read_lock();
 	helper = __nf_conntrack_helper_find(helpname, nf_ct_l3num(ct),
 					    nf_ct_protonum(ct));
 	if (helper == NULL) {
@@ -1974,7 +1976,8 @@ static int ctnetlink_change_helper(struct nf_conn *ct,
 	if (help) {
 		if (rcu_access_pointer(help->helper) == helper) {
 			/* update private helper data if allowed. */
-			if (helper->from_nlattr)
+			if (rcu_access_pointer(helper->help) &&
+			    helper->from_nlattr)
 				helper->from_nlattr(helpinfo, ct);
 			err = 0;
 		} else
@@ -2289,11 +2292,16 @@ ctnetlink_create_conntrack(struct net *net,
 				goto err2;
 			}
 			/* set private helper data if allowed. */
-			if (helper->from_nlattr)
+			if (rcu_access_pointer(helper->help) &&
+			    helper->from_nlattr)
 				helper->from_nlattr(helpinfo, ct);
 
 			/* disable helper auto-assignment for this entry */
 			ct->status |= IPS_HELPER;
+			if (!refcount_inc_not_zero(&helper->ct_refcnt)) {
+				err = -ENOENT;
+				goto err2;
+			}
 			RCU_INIT_POINTER(help->helper, helper);
 		}
 	}
@@ -2634,6 +2642,7 @@ static const struct nla_policy exp_nla_policy[CTA_EXPECT_MAX+1] = {
 
 static struct nf_conntrack_expect *
 ctnetlink_alloc_expect(const struct nlattr *const cda[], struct nf_conn *ct,
+		       const struct nf_conntrack_helper *assign_helper,
 		       struct nf_conntrack_tuple *tuple,
 		       struct nf_conntrack_tuple *mask);
 
@@ -2860,6 +2869,7 @@ static int
 ctnetlink_glue_attach_expect(const struct nlattr *attr, struct nf_conn *ct,
 			     u32 portid, u32 report)
 {
+	struct nf_conntrack_helper *assign_helper = NULL;
 	struct nlattr *cda[CTA_EXPECT_MAX+1];
 	struct nf_conntrack_tuple tuple, mask;
 	struct nf_conntrack_expect *exp;
@@ -2870,13 +2880,26 @@ ctnetlink_glue_attach_expect(const struct nlattr *attr, struct nf_conn *ct,
 	if (err < 0)
 		return err;
 
+	if (!cda[CTA_EXPECT_TUPLE] || !cda[CTA_EXPECT_MASK])
+		return -EINVAL;
+
 	err = ctnetlink_glue_exp_parse((const struct nlattr * const *)cda,
 				       ct, &tuple, &mask);
 	if (err < 0)
 		return err;
 
+	if (cda[CTA_EXPECT_HELP_NAME]) {
+		const char *helpname = nla_data(cda[CTA_EXPECT_HELP_NAME]);
+
+		assign_helper = __nf_conntrack_helper_find(helpname,
+							   nf_ct_l3num(ct),
+							   tuple.dst.protonum);
+		if (!assign_helper)
+			return -EOPNOTSUPP;
+	}
+
 	exp = ctnetlink_alloc_expect((const struct nlattr * const *)cda, ct,
-				     &tuple, &mask);
+				     assign_helper, &tuple, &mask);
 	if (IS_ERR(exp))
 		return PTR_ERR(exp);
 
@@ -3158,7 +3181,7 @@ restart:
 			if (l3proto && exp->tuple.src.l3num != l3proto)
 				continue;
 
-			if (!net_eq(nf_ct_net(exp->master), net))
+			if (!net_eq(nf_ct_exp_net(exp), net))
 				continue;
 
 			if (cb->args[1]) {
@@ -3515,6 +3538,7 @@ ctnetlink_parse_expect_nat(const struct nlattr *attr,
 
 static struct nf_conntrack_expect *
 ctnetlink_alloc_expect(const struct nlattr * const cda[], struct nf_conn *ct,
+		       const struct nf_conntrack_helper *assign_helper,
 		       struct nf_conntrack_tuple *tuple,
 		       struct nf_conntrack_tuple *mask)
 {
@@ -3568,6 +3592,7 @@ ctnetlink_alloc_expect(const struct nlattr * const cda[], struct nf_conn *ct,
 	exp->zone = ct->zone;
 #endif
 	rcu_assign_pointer(exp->helper, helper);
+	rcu_assign_pointer(exp->assign_helper, assign_helper);
 	exp->tuple = *tuple;
 	exp->mask.src.u3 = mask->src.u3;
 	exp->mask.src.u.all = mask->src.u.all;
@@ -3623,7 +3648,7 @@ ctnetlink_create_expect(struct net *net,
 	ct = nf_ct_tuplehash_to_ctrack(h);
 
 	rcu_read_lock();
-	exp = ctnetlink_alloc_expect(cda, ct, &tuple, &mask);
+	exp = ctnetlink_alloc_expect(cda, ct, NULL, &tuple, &mask);
 	if (IS_ERR(exp)) {
 		err = PTR_ERR(exp);
 		goto err_rcu;

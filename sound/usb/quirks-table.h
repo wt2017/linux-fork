@@ -2132,6 +2132,14 @@ YAMAHA_DEVICE(0x7010, "UB99"),
 	}
 },
 {
+	USB_DEVICE(0x1235, 0x001e),
+	QUIRK_DRIVER_INFO {
+		/* .vendor_name = "Novation", */
+		/* .product_name = "Mininova", */
+		QUIRK_DATA_RAW_BYTES(0)
+	}
+},
+{
 	USB_DEVICE_VENDOR_SPEC(0x1235, 0x4661),
 	QUIRK_DRIVER_INFO {
 		.vendor_name = "Novation",
@@ -2652,6 +2660,9 @@ YAMAHA_DEVICE(0x7010, "UB99"),
 		}
 	}
 },
+
+#endif /* disabled */
+
 {
 	/*
 	 * The AudioBox USB advertises S24_3LE as the only supported format
@@ -2700,7 +2711,6 @@ YAMAHA_DEVICE(0x7010, "UB99"),
 		}
 	}
 },
-#endif /* disabled */
 
 {
 	/*
